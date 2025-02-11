@@ -20,7 +20,7 @@ export const RiskSlider = ({ onChange }: RiskSliderProps) => {
     <div className="w-full space-y-4 animate-in">
       <div className="flex items-center justify-between">
         <label className="text-sm font-medium text-muted-foreground">
-          Niveau de risque
+          Complexité d'investissement
         </label>
         <div className="flex items-center gap-2">
           {indicator === "up" ? (
