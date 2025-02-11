@@ -14,7 +14,7 @@ const Index = () => {
       <div className="max-w-3xl mx-auto space-y-8">
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-semibold tracking-tight">
-            Simulateur d'Investissement
+            WeeInvest
           </h1>
           <p className="text-muted-foreground">
             Découvrez votre allocation d'actifs optimale
