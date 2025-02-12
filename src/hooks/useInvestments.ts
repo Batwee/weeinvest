@@ -13,7 +13,7 @@ export const useInvestments = (riskLevel: number) => {
       try {
         setLoading(true);
         const { data, error } = await supabase
-          .from('investments')
+          .from('investment_options')  // Changement du nom de la table
           .select('*')
           .eq('risk_level', riskLevel);
 
