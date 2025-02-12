@@ -1,11 +1,14 @@
 
 import { Info } from "lucide-react";
+import { useInvestments } from "@/hooks/useInvestments";
 
 interface AssetDetailsProps {
   riskLevel: number;
 }
 
 export const AssetDetails = ({ riskLevel }: AssetDetailsProps) => {
+  const { investments, loading, error } = useInvestments(riskLevel);
+
   const getDetails = () => {
     if (riskLevel <= 3) {
       return {
@@ -39,6 +42,30 @@ export const AssetDetails = ({ riskLevel }: AssetDetailsProps) => {
       <p className="text-sm text-muted-foreground leading-relaxed">
         {details.description}
       </p>
+      
+      {error && (
+        <p className="text-sm text-destructive">
+          Erreur de chargement des investissements
+        </p>
+      )}
+      
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Chargement...</p>
+      ) : (
+        <div className="mt-4 space-y-3">
+          {investments.map((investment) => (
+            <div
+              key={investment.id}
+              className="p-3 bg-card rounded-lg border border-border"
+            >
+              <h4 className="font-medium">{investment.name}</h4>
+              <p className="text-sm text-muted-foreground">
+                {investment.description}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
