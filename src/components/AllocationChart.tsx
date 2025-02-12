@@ -27,35 +27,22 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
         ];
       }
 
-      // Groupe les investissements par type et calcule le total
+      // Groupe les investissements et calcule le total
       const groupedInvestments = investments.reduce((acc, investment) => {
-        if (!acc[investment.type]) {
-          acc[investment.type] = 0;
-        }
-        acc[investment.type] += 25; // Distribution égale entre les options
+        acc.push({
+          name: investment.name_invest,
+          value: 100 / investments.length, // Distribution égale entre les options
+          color: getColorForIndex(acc.length)
+        });
         return acc;
-      }, {} as Record<string, number>);
+      }, [] as Array<{ name: string; value: number; color: string }>);
 
-      // Convertit les groupes en format pour le graphique
-      const colors: Record<string, string> = {
-        crypto: "#9b87f5",
-        stocks: "#7E69AB",
-        bonds: "#D6BCFA",
-        cash: "#B794F4"
-      };
+      return groupedInvestments;
+    };
 
-      const typeLabels: Record<string, string> = {
-        crypto: "Crypto",
-        stocks: "Actions",
-        bonds: "Obligations",
-        cash: "Liquidités"
-      };
-
-      return Object.entries(groupedInvestments).map(([type, value]) => ({
-        name: typeLabels[type] || type,
-        value,
-        color: colors[type] || "#9b87f5"
-      }));
+    const getColorForIndex = (index: number) => {
+      const colors = ["#9b87f5", "#7E69AB", "#D6BCFA", "#B794F4", "#805AD5"];
+      return colors[index % colors.length];
     };
 
     setData(calculateAllocation());
@@ -70,7 +57,7 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
       return (
         <div className="glassmorphism p-3 rounded-lg">
           <p className="text-sm font-medium">{item.name}</p>
-          <p className="text-sm text-muted-foreground">{value}%</p>
+          <p className="text-sm text-muted-foreground">{value.toFixed(1)}%</p>
           <p className="text-sm font-medium">
             {new Intl.NumberFormat("fr-FR", {
               style: "currency",
