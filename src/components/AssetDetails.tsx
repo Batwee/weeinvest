@@ -31,7 +31,7 @@ export const AssetDetails = ({ riskLevel }: AssetDetailsProps) => {
               key={investment.id}
               className="p-3 bg-card rounded-lg border border-border"
             >
-              <h4 className="font-medium">{investment.name}</h4>
+              <h4 className="font-medium">{investment.name_invest}</h4>
               <p className="text-sm text-muted-foreground">
                 {investment.description}
               </p>
