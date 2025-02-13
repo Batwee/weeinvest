@@ -8,8 +8,8 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 
 export type InvestmentType = {
   id: number;
-  name: string;
+  name_invest: string;
   description: string;
   risk_level: number;
-  type: 'crypto' | 'stocks' | 'bonds' | 'cash';
+  type: string;
 };
