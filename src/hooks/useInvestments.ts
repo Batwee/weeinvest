@@ -1,10 +1,10 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import type { InvestmentType } from '@/lib/supabase';
+import type { InvestmentOptions } from '@/lib/supabase';
 
 export const useInvestments = (riskLevel: number) => {
-  const [investments, setInvestments] = useState<InvestmentType[]>([]);
+  const [investments, setInvestments] = useState<InvestmentOptions[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -13,7 +13,7 @@ export const useInvestments = (riskLevel: number) => {
       try {
         setLoading(true);
         const { data, error } = await supabase
-          .from('investment_options')  // Changement du nom de la table
+          .from('investment_options')
           .select('*')
           .eq('risk_level', riskLevel);
 
