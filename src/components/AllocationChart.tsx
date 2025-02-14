@@ -27,17 +27,14 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
         ];
       }
 
-      // Groupe les investissements et calcule le total
-      const groupedInvestments = investments.reduce((acc, investment) => {
-        acc.push({
-          name: investment.name_invest,
-          value: 100 / investments.length, // Distribution égale entre les options
-          color: getColorForIndex(acc.length)
-        });
-        return acc;
-      }, [] as Array<{ name: string; value: number; color: string }>);
-
-      return groupedInvestments;
+      // Distribution égale du pourcentage entre les investissements
+      const percentagePerInvestment = 100 / investments.length;
+      
+      return investments.map((investment, index) => ({
+        name: investment.name_invest,
+        value: percentagePerInvestment,
+        color: getColorForIndex(index)
+      }));
     };
 
     const getColorForIndex = (index: number) => {
