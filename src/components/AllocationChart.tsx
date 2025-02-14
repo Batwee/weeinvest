@@ -27,12 +27,10 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
         ];
       }
 
-      // Distribution égale du pourcentage entre les investissements
-      const percentagePerInvestment = 100 / investments.length;
-      
+      // Utilisation des données de la base avec répartition des pourcentages
       return investments.map((investment, index) => ({
         name: investment.name_invest,
-        value: percentagePerInvestment,
+        value: investment.percentage || (100 / investments.length), // Utilise le pourcentage de la base ou répartit équitablement
         color: getColorForIndex(index)
       }));
     };

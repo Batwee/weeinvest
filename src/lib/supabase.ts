@@ -12,4 +12,5 @@ export type InvestmentOptions = {
   description: string;
   risk_level: number;
   type: string;
+  percentage?: number; // Ajout du champ percentage optionnel
 };
