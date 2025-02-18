@@ -45,8 +45,8 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
         ];
       }
 
-      // Calcul des poids en fonction du niveau de risque
-      const weights = investments.map(investment => {
+      // Calcul des poids en fonction du niveau de risque uniquement pour les investissements disponibles
+      const weights = availableInvestments.map(investment => {
         // Calculer le poids basé sur le niveau de risque
         const riskWeight = (6 - Math.abs(riskLevel - investment.risk_level)) / 5;
         // Assurer un poids minimum de 0.1 (10%) pour garantir la diversification
@@ -57,10 +57,10 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
       const totalWeight = weights.reduce((acc, weight) => acc + weight, 0);
 
       // Calculer les pourcentages avec un minimum garanti
-      const initialPercentages = investments.map((investment, index) => {
+      const initialPercentages = availableInvestments.map((investment, index) => {
         // Garantir un minimum de 5% pour chaque investissement
         const minPercentage = 5;
-        const calculatedPercentage = (weights[index] / totalWeight) * (100 - (minPercentage * investments.length));
+        const calculatedPercentage = (weights[index] / totalWeight) * (100 - (minPercentage * availableInvestments.length));
         return calculatedPercentage + minPercentage;
       });
 
@@ -68,32 +68,11 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
       const totalPercentage = initialPercentages.reduce((acc, percentage) => acc + percentage, 0);
       const adjustmentFactor = 100 / totalPercentage;
 
-      // Calculer les allocations finales en tenant compte des montants minimums
-      const finalData = investments.map((investment, index) => {
-        const percentage = initialPercentages[index] * adjustmentFactor;
-        const allocatedAmount = (amount * percentage) / 100;
-
-        // Si le montant alloué est inférieur au minimum requis, réduire le pourcentage
-        if (investment.minimum_investment && allocatedAmount < investment.minimum_investment) {
-          return {
-            name: investment.name_invest,
-            value: Math.max(5, (investment.minimum_investment / amount) * 100),
-            color: getColorForIndex(index)
-          };
-        }
-
-        return {
-          name: investment.name_invest,
-          value: percentage,
-          color: getColorForIndex(index)
-        };
-      });
-
-      // Normaliser à nouveau les pourcentages pour s'assurer qu'ils totalisent 100%
-      const finalTotal = finalData.reduce((acc, item) => acc + item.value, 0);
-      return finalData.map(item => ({
-        ...item,
-        value: (item.value / finalTotal) * 100
+      // Créer les données finales uniquement avec les investissements disponibles
+      return availableInvestments.map((investment, index) => ({
+        name: investment.name_invest,
+        value: initialPercentages[index] * adjustmentFactor,
+        color: getColorForIndex(index)
       }));
     };
 
