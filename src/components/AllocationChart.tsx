@@ -26,7 +26,6 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
       // Si aucun investissement n'est disponible avec le montant actuel, 
       // proposer des alternatives avec des minimums plus bas
       if (availableInvestments.length === 0) {
-        // Créer des alternatives par défaut
         return [
           { 
             name: "Crypto-monnaies", 
@@ -48,22 +47,32 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
 
       // Calcul des poids en fonction du niveau de risque
       const weights = availableInvestments.map(investment => {
+        // Calculer le poids basé sur le niveau de risque
         const riskWeight = (6 - Math.abs(riskLevel - investment.risk_level)) / 5;
-        return riskWeight;
+        // Assurer un poids minimum de 0.1 (10%) pour garantir la diversification
+        return Math.max(0.1, riskWeight);
       });
 
       // Somme totale des poids pour la normalisation
       const totalWeight = weights.reduce((acc, weight) => acc + weight, 0);
 
-      // Calcul des pourcentages normalisés
-      return availableInvestments.map((investment, index) => {
-        const normalizedPercentage = (weights[index] / totalWeight) * 100;
-        return {
-          name: investment.name_invest,
-          value: normalizedPercentage,
-          color: getColorForIndex(index)
-        };
+      // Calculer les pourcentages avec un minimum garanti
+      const initialPercentages = availableInvestments.map((investment, index) => {
+        // Garantir un minimum de 5% pour chaque investissement
+        const minPercentage = 5;
+        const calculatedPercentage = (weights[index] / totalWeight) * (100 - (minPercentage * availableInvestments.length));
+        return calculatedPercentage + minPercentage;
       });
+
+      // Ajuster les pourcentages pour qu'ils totalisent exactement 100%
+      const totalPercentage = initialPercentages.reduce((acc, percentage) => acc + percentage, 0);
+      const adjustmentFactor = 100 / totalPercentage;
+
+      return availableInvestments.map((investment, index) => ({
+        name: investment.name_invest,
+        value: initialPercentages[index] * adjustmentFactor,
+        color: getColorForIndex(index)
+      }));
     };
 
     const getColorForIndex = (index: number) => {
@@ -108,8 +117,6 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
     </div>;
   }
 
-  // Si nous avons des données (soit des investissements disponibles, soit des alternatives),
-  // afficher le graphique
   if (data.length > 0) {
     return (
       <div className="w-full h-[300px] animate-in">
