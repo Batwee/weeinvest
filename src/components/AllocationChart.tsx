@@ -15,24 +15,28 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
   useEffect(() => {
     const calculateAllocation = () => {
       if (!investments.length) {
-        // Fallback to default values if no investments are loaded
-        const stocks = Math.min(90, Math.max(10, riskLevel * 10));
-        const bonds = Math.min(80, Math.max(5, 100 - stocks - 5));
-        const cash = 100 - stocks - bonds;
-
-        return [
-          { name: "Actions", value: stocks, color: "#9b87f5" },
-          { name: "Obligations", value: bonds, color: "#7E69AB" },
-          { name: "Liquidités", value: cash, color: "#D6BCFA" },
-        ];
+        return [];
       }
 
-      // Utilisation des données de la base avec répartition des pourcentages
-      return investments.map((investment, index) => ({
-        name: investment.name_invest,
-        value: investment.percentage || (100 / investments.length), // Utilise le pourcentage de la base ou répartit équitablement
-        color: getColorForIndex(index)
-      }));
+      // Calcul des poids en fonction du niveau de risque
+      const weights = investments.map(investment => {
+        const riskWeight = (6 - Math.abs(riskLevel - investment.risk_level)) / 5;
+        return riskWeight;
+      });
+
+      // Somme totale des poids pour la normalisation
+      const totalWeight = weights.reduce((acc, weight) => acc + weight, 0);
+
+      // Calcul des pourcentages normalisés
+      return investments.map((investment, index) => {
+        const normalizedPercentage = (weights[index] / totalWeight) * 100;
+        return {
+          name: investment.name_invest,
+          value: normalizedPercentage,
+          color: getColorForIndex(index),
+          minInvestment: investment.minimum_investment || 0
+        };
+      });
     };
 
     const getColorForIndex = (index: number) => {
@@ -68,6 +72,24 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
   if (loading) {
     return <div className="w-full h-[300px] flex items-center justify-center">
       <p className="text-muted-foreground">Chargement...</p>
+    </div>;
+  }
+
+  if (!amount) {
+    return <div className="w-full h-[300px] flex items-center justify-center">
+      <p className="text-muted-foreground">Rentrez vos fonds à investir</p>
+    </div>;
+  }
+
+  // Vérification des montants minimums d'investissement
+  const insufficientFunds = investments.some(investment => {
+    const allocation = (amount * (data.find(d => d.name === investment.name_invest)?.value || 0)) / 100;
+    return allocation < (investment.minimum_investment || 0);
+  });
+
+  if (insufficientFunds) {
+    return <div className="w-full h-[300px] flex items-center justify-center">
+      <p className="text-muted-foreground">Le montant minimum d'investissement n'est pas atteint pour certaines options</p>
     </div>;
   }
 
