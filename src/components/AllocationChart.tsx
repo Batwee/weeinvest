@@ -18,8 +18,36 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
         return [];
       }
 
+      // Filtrer les investissements en fonction du montant disponible
+      const availableInvestments = investments.filter(
+        investment => !investment.minimum_investment || investment.minimum_investment <= amount
+      );
+
+      // Si aucun investissement n'est disponible avec le montant actuel, 
+      // proposer des alternatives avec des minimums plus bas
+      if (availableInvestments.length === 0) {
+        // Créer des alternatives par défaut
+        return [
+          { 
+            name: "Crypto-monnaies", 
+            value: 30, 
+            color: "#9b87f5" 
+          },
+          { 
+            name: "ETF", 
+            value: 40, 
+            color: "#7E69AB" 
+          },
+          { 
+            name: "Liquidités", 
+            value: 30, 
+            color: "#D6BCFA" 
+          }
+        ];
+      }
+
       // Calcul des poids en fonction du niveau de risque
-      const weights = investments.map(investment => {
+      const weights = availableInvestments.map(investment => {
         const riskWeight = (6 - Math.abs(riskLevel - investment.risk_level)) / 5;
         return riskWeight;
       });
@@ -28,13 +56,12 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
       const totalWeight = weights.reduce((acc, weight) => acc + weight, 0);
 
       // Calcul des pourcentages normalisés
-      return investments.map((investment, index) => {
+      return availableInvestments.map((investment, index) => {
         const normalizedPercentage = (weights[index] / totalWeight) * 100;
         return {
           name: investment.name_invest,
           value: normalizedPercentage,
-          color: getColorForIndex(index),
-          minInvestment: investment.minimum_investment || 0
+          color: getColorForIndex(index)
         };
       });
     };
@@ -45,7 +72,7 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
     };
 
     setData(calculateAllocation());
-  }, [riskLevel, investments]);
+  }, [riskLevel, investments, amount]);
 
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
@@ -81,38 +108,34 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
     </div>;
   }
 
-  // Vérification des montants minimums d'investissement
-  const insufficientFunds = investments.some(investment => {
-    const allocation = (amount * (data.find(d => d.name === investment.name_invest)?.value || 0)) / 100;
-    return allocation < (investment.minimum_investment || 0);
-  });
-
-  if (insufficientFunds) {
-    return <div className="w-full h-[300px] flex items-center justify-center">
-      <p className="text-muted-foreground">Le montant minimum d'investissement n'est pas atteint pour certaines options</p>
-    </div>;
+  // Si nous avons des données (soit des investissements disponibles, soit des alternatives),
+  // afficher le graphique
+  if (data.length > 0) {
+    return (
+      <div className="w-full h-[300px] animate-in">
+        <ResponsiveContainer>
+          <PieChart>
+            <Pie
+              data={data}
+              innerRadius={60}
+              outerRadius={100}
+              paddingAngle={2}
+              dataKey="value"
+              animationBegin={0}
+              animationDuration={1000}
+            >
+              {data.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip content={<CustomTooltip />} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+    );
   }
 
-  return (
-    <div className="w-full h-[300px] animate-in">
-      <ResponsiveContainer>
-        <PieChart>
-          <Pie
-            data={data}
-            innerRadius={60}
-            outerRadius={100}
-            paddingAngle={2}
-            dataKey="value"
-            animationBegin={0}
-            animationDuration={1000}
-          >
-            {data.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={entry.color} />
-            ))}
-          </Pie>
-          <Tooltip content={<CustomTooltip />} />
-        </PieChart>
-      </ResponsiveContainer>
-    </div>
-  );
+  return <div className="w-full h-[300px] flex items-center justify-center">
+    <p className="text-muted-foreground">Aucune option d'investissement disponible</p>
+  </div>;
 };
