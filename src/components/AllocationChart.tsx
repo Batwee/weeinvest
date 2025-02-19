@@ -18,49 +18,35 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
         return [];
       }
 
-      // Filtrer les investissements en fonction du montant disponible
-      const availableInvestments = investments.filter(
-        investment => !investment.minimum_investment || investment.minimum_investment <= amount
-      );
-
-      // Si aucun investissement n'est disponible avec le montant actuel, 
-      // proposer des alternatives avec des minimums plus bas
-      if (availableInvestments.length === 0) {
-        return [
-          { 
-            name: "Crypto-monnaies", 
-            value: 30, 
-            color: "#9b87f5" 
-          },
-          { 
-            name: "ETF", 
-            value: 40, 
-            color: "#7E69AB" 
-          },
-          { 
-            name: "Liquidités", 
-            value: 30, 
-            color: "#D6BCFA" 
-          }
-        ];
-      }
-
-      // Calcul des poids en fonction du niveau de risque uniquement pour les investissements disponibles
-      const weights = availableInvestments.map(investment => {
+      // Calcul des poids en fonction du niveau de risque pour tous les investissements
+      const weights = investments.map(investment => {
         // Calculer le poids basé sur le niveau de risque
         const riskWeight = (6 - Math.abs(riskLevel - investment.risk_level)) / 5;
-        // Assurer un poids minimum de 0.1 (10%) pour garantir la diversification
-        return Math.max(0.1, riskWeight);
+        
+        // Ajuster le poids en fonction du montant minimum d'investissement
+        let weightMultiplier = 1;
+        if (investment.minimum_investment) {
+          if (amount < investment.minimum_investment) {
+            // Réduire significativement le poids si le montant minimum n'est pas atteint
+            weightMultiplier = 0.3;
+          } else {
+            // Augmenter légèrement le poids si le montant minimum est dépassé
+            weightMultiplier = 1.2;
+          }
+        }
+
+        // Assurer un poids minimum de 0.05 (5%) pour garantir la diversification
+        return Math.max(0.05, riskWeight * weightMultiplier);
       });
 
       // Somme totale des poids pour la normalisation
       const totalWeight = weights.reduce((acc, weight) => acc + weight, 0);
 
       // Calculer les pourcentages avec un minimum garanti
-      const initialPercentages = availableInvestments.map((investment, index) => {
-        // Garantir un minimum de 5% pour chaque investissement
-        const minPercentage = 5;
-        const calculatedPercentage = (weights[index] / totalWeight) * (100 - (minPercentage * availableInvestments.length));
+      const initialPercentages = investments.map((investment, index) => {
+        // Garantir un minimum de 3% pour chaque investissement
+        const minPercentage = 3;
+        const calculatedPercentage = (weights[index] / totalWeight) * (100 - (minPercentage * investments.length));
         return calculatedPercentage + minPercentage;
       });
 
@@ -68,8 +54,8 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
       const totalPercentage = initialPercentages.reduce((acc, percentage) => acc + percentage, 0);
       const adjustmentFactor = 100 / totalPercentage;
 
-      // Créer les données finales uniquement avec les investissements disponibles
-      return availableInvestments.map((investment, index) => ({
+      // Créer les données finales avec tous les investissements
+      return investments.map((investment, index) => ({
         name: investment.name_invest,
         value: initialPercentages[index] * adjustmentFactor,
         color: getColorForIndex(index)
