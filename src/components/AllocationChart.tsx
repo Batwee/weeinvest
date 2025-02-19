@@ -18,48 +18,54 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
         return [];
       }
 
-      // Calcul des poids en fonction du niveau de risque pour tous les investissements
+      // Calcul des poids pour TOUS les investissements
       const weights = investments.map(investment => {
-        // Calculer le poids basé sur le niveau de risque (1 à 5)
-        const riskWeight = (6 - Math.abs(riskLevel - investment.risk_level)) / 5;
-        
-        // Ajuster le poids en fonction du montant minimum d'investissement
-        let weightMultiplier = 1;
-        if (investment.minimum_investment) {
-          if (amount < investment.minimum_investment) {
-            // Réduire fortement le poids si le montant minimum n'est pas atteint
-            // Plus la différence est grande, plus la réduction est importante
-            const ratio = amount / investment.minimum_investment;
-            weightMultiplier = Math.max(0.1, ratio * 0.5); // minimum 10% du poids original
-          } else {
-            // Augmenter légèrement le poids si le montant minimum est dépassé
-            weightMultiplier = 1.2;
-          }
+        // Base weight calculation
+        let weight = 1;
+
+        // 1. Ajustement strict du poids basé sur le minimum_investment
+        if (investment.minimum_investment && amount < investment.minimum_investment) {
+          weight *= 0.2; // Réduction drastique du poids si le minimum n'est pas atteint
         }
 
-        // Assurer un poids minimum de 0.05 (5%) pour garantir la diversification
-        return Math.max(0.05, riskWeight * weightMultiplier);
+        // 2. Ajustement basé sur le risk_level (0 à 1)
+        const riskDifference = Math.abs(riskLevel - investment.risk_level);
+        const riskWeight = (5 - riskDifference) / 5;
+        weight *= Math.max(0.3, riskWeight); // minimum 30% pour garder une certaine visibilité
+
+        // 3. Ajustement basé sur la complexité (complexity du slider)
+        // Note: Nous utilisons le risk_level comme proxy pour la complexité
+        // Plus la différence est grande, plus le poids est réduit
+        const complexityDifference = Math.abs(riskLevel - investment.risk_level);
+        const complexityWeight = (5 - complexityDifference) / 5;
+        weight *= Math.max(0.3, complexityWeight);
+
+        return Math.max(0.15, weight); // Garantir un minimum de 15% du poids original
       });
 
-      // Somme totale des poids pour la normalisation
+      // Normalisation des poids
       const totalWeight = weights.reduce((acc, weight) => acc + weight, 0);
+      
+      // Calcul des pourcentages initiaux
+      const initialPercentages = weights.map(weight => (weight / totalWeight) * 100);
 
-      // Calculer les pourcentages avec un minimum garanti
-      const initialPercentages = investments.map((_, index) => {
-        // Garantir un minimum de 2% pour chaque investissement
-        const minPercentage = 2;
-        const calculatedPercentage = (weights[index] / totalWeight) * (100 - (minPercentage * investments.length));
-        return calculatedPercentage + minPercentage;
+      // Ajustement pour garantir un minimum de visibilité
+      const minPercentage = 5; // 5% minimum pour chaque investissement
+      const remainingPercentage = 100 - (minPercentage * investments.length);
+      
+      // Distribution du pourcentage restant proportionnellement
+      const adjustedPercentages = initialPercentages.map(percentage => {
+        return minPercentage + (percentage / 100) * remainingPercentage;
       });
 
-      // Ajuster les pourcentages pour qu'ils totalisent exactement 100%
-      const totalPercentage = initialPercentages.reduce((acc, percentage) => acc + percentage, 0);
-      const adjustmentFactor = 100 / totalPercentage;
+      // Normalisation finale pour atteindre exactement 100%
+      const totalPercentage = adjustedPercentages.reduce((acc, p) => acc + p, 0);
+      const normalizedPercentages = adjustedPercentages.map(p => (p / totalPercentage) * 100);
 
-      // Créer les données finales avec TOUS les investissements
+      // Création des données finales avec TOUS les investissements
       return investments.map((investment, index) => ({
         name: investment.name_invest,
-        value: initialPercentages[index] * adjustmentFactor,
+        value: normalizedPercentages[index],
         color: getColorForIndex(index)
       }));
     };
