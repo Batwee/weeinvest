@@ -9,8 +9,18 @@ interface AllocationChartProps {
 }
 
 export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => {
-  const [data, setData] = useState<Array<{ name: string; value: number; color: string }>>([]);
+  const [data, setData] = useState<Array<{ name: string; value: number; color: string; potential_return: number }>>([]);
   const { investments, loading } = useInvestments(riskLevel);
+
+  // Calculer l'APY global en fonction des pourcentages d'allocation
+  const calculateGlobalAPY = () => {
+    if (!data.length) return 0;
+    
+    return data.reduce((acc, item) => {
+      const weightedReturn = (item.value / 100) * item.potential_return;
+      return acc + weightedReturn;
+    }, 0);
+  };
 
   useEffect(() => {
     const calculateAllocation = () => {
@@ -66,7 +76,8 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
       return investments.map((investment, index) => ({
         name: investment.name_invest,
         value: normalizedPercentages[index],
-        color: getColorForIndex(index)
+        color: getColorForIndex(index),
+        potential_return: investment.potential_return || 0
       }));
     };
 
@@ -83,9 +94,11 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
       const item = payload[0];
       const value = item.value;
       const amountValue = (amount * value) / 100;
+      const potentialReturn = item.payload.potential_return;
+      const annualReturn = (amountValue * potentialReturn) / 100;
 
       return (
-        <div className="glassmorphism p-3 rounded-lg">
+        <div className="glassmorphism p-3 rounded-lg space-y-1">
           <p className="text-sm font-medium">{item.name}</p>
           <p className="text-sm text-muted-foreground">{value.toFixed(1)}%</p>
           <p className="text-sm font-medium">
@@ -94,6 +107,15 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
               currency: "EUR",
             }).format(amountValue)}
           </p>
+          <div className="border-t border-border/50 pt-1 mt-1">
+            <p className="text-sm text-muted-foreground">APY: {potentialReturn}%</p>
+            <p className="text-sm font-medium text-green-600">
+              {new Intl.NumberFormat("fr-FR", {
+                style: "currency",
+                currency: "EUR",
+              }).format(annualReturn)}/an
+            </p>
+          </div>
         </div>
       );
     }
@@ -113,26 +135,41 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
   }
 
   if (data.length > 0) {
+    const globalAPY = calculateGlobalAPY();
+    const globalAnnualReturn = (amount * globalAPY) / 100;
+
     return (
-      <div className="w-full h-[300px] animate-in">
-        <ResponsiveContainer>
-          <PieChart>
-            <Pie
-              data={data}
-              innerRadius={60}
-              outerRadius={100}
-              paddingAngle={2}
-              dataKey="value"
-              animationBegin={0}
-              animationDuration={1000}
-            >
-              {data.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color} />
-              ))}
-            </Pie>
-            <Tooltip content={<CustomTooltip />} />
-          </PieChart>
-        </ResponsiveContainer>
+      <div className="w-full space-y-4">
+        <div className="text-center space-y-1">
+          <p className="text-sm text-muted-foreground">APY Global</p>
+          <p className="text-lg font-medium">{globalAPY.toFixed(2)}%</p>
+          <p className="text-sm font-medium text-green-600">
+            {new Intl.NumberFormat("fr-FR", {
+              style: "currency",
+              currency: "EUR",
+            }).format(globalAnnualReturn)}/an
+          </p>
+        </div>
+        <div className="h-[300px] animate-in">
+          <ResponsiveContainer>
+            <PieChart>
+              <Pie
+                data={data}
+                innerRadius={60}
+                outerRadius={100}
+                paddingAngle={2}
+                dataKey="value"
+                animationBegin={0}
+                animationDuration={1000}
+              >
+                {data.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip content={<CustomTooltip />} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     );
   }
