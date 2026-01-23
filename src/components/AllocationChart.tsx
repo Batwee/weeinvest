@@ -6,175 +6,205 @@ import { useInvestments } from "@/hooks/useInvestments";
 interface AllocationChartProps {
   riskLevel: number;
   amount: number;
+  onInvestmentsChange?: (investments: any[]) => void;
 }
 
-export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => {
+export const AllocationChart = ({ riskLevel, amount, onInvestmentsChange }: AllocationChartProps) => {
   const [data, setData] = useState<Array<{ name: string; value: number; color: string; potential_return: number }>>([]);
+  const [eligibleInvestments, setEligibleInvestments] = useState<any[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const { investments, loading } = useInvestments(riskLevel);
 
   // Calculer l'APY global en fonction des pourcentages d'allocation
   const calculateGlobalAPY = () => {
     if (!data.length) return 0;
     
-    return data.reduce((acc, item) => {
-      const weightedReturn = (item.value / 100) * item.potential_return;
+    const totalValue = data.reduce((acc, item) => acc + item.value, 0);
+    if (totalValue === 0) return 0;
+
+    const weightedReturns = data.reduce((acc, item) => {
+      const weightedReturn = (item.value / totalValue) * item.potential_return;
       return acc + weightedReturn;
     }, 0);
+
+    return Number.isFinite(weightedReturns) ? weightedReturns : 0;
   };
 
   useEffect(() => {
     const calculateAllocation = () => {
-      if (!investments.length) {
+      if (!investments || !Array.isArray(investments) || investments.length === 0) {
+        setEligibleInvestments([]);
         return [];
       }
 
-      // Calcul des poids pour TOUS les investissements
-      const weights = investments.map(investment => {
-        // Base weight calculation
-        let weight = 1;
-
-        // 1. Ajustement strict du poids basé sur le minimum_investment
-        if (investment.minimum_investment && amount < investment.minimum_investment) {
-          weight *= 0.2; // Réduction drastique du poids si le minimum n'est pas atteint
-        }
-
-        // 2. Ajustement basé sur le risk_level (0 à 1)
-        const riskDifference = Math.abs(riskLevel - investment.risk_level);
-        const riskWeight = (5 - riskDifference) / 5;
-        weight *= Math.max(0.3, riskWeight); // minimum 30% pour garder une certaine visibilité
-
-        // 3. Ajustement basé sur la complexité (complexity du slider)
-        // Note: Nous utilisons le risk_level comme proxy pour la complexité
-        // Plus la différence est grande, plus le poids est réduit
-        const complexityDifference = Math.abs(riskLevel - investment.risk_level);
-        const complexityWeight = (5 - complexityDifference) / 5;
-        weight *= Math.max(0.3, complexityWeight);
-
-        return Math.max(0.15, weight); // Garantir un minimum de 15% du poids original
+      // Filter out investments that don't meet minimum requirements
+      const filtered = investments.filter(investment => {
+        if (!investment || typeof investment !== 'object') return false;
+        const hasMinimumRequirement = typeof investment.minimum_investment === 'number';
+        return hasMinimumRequirement ? amount >= investment.minimum_investment : true;
       });
 
-      // Normalisation des poids
+      if (filtered.length === 0) {
+        setEligibleInvestments([]);
+        return [];
+      }
+
+      // Calculate weights first
+      const weights = filtered.map(investment => {
+        if (!investment || typeof investment.risk_level !== 'number') {
+          return 0.5;
+        }
+        let weight = 5;
+        const riskDifference = Math.abs(riskLevel - investment.risk_level);
+        if (riskDifference === 0) {
+          weight *= 2.5;
+        } else if (riskDifference <= 2) {
+          weight *= (2 - (riskDifference * 0.3));
+        } else {
+          weight *= (1.2 - (riskDifference * 0.15));
+        }
+        if (investment.weight_modifier) {
+          weight *= Math.max(0.5, investment.weight_modifier);
+        }
+        return Math.max(0.5, weight);
+      });
+
       const totalWeight = weights.reduce((acc, weight) => acc + weight, 0);
-      
-      // Calcul des pourcentages initiaux
       const initialPercentages = weights.map(weight => (weight / totalWeight) * 100);
 
-      // Ajustement pour garantir un minimum de visibilité
-      const minPercentage = 5; // 5% minimum pour chaque investissement
-      const remainingPercentage = 100 - (minPercentage * investments.length);
-      
-      // Distribution du pourcentage restant proportionnellement
-      const adjustedPercentages = initialPercentages.map(percentage => {
-        return minPercentage + (percentage / 100) * remainingPercentage;
+      const minPercentage = 5;
+      const maxPercentage = 40;
+
+      // Adjust percentages to respect min/max constraints
+      let adjustedPercentages = initialPercentages.map(percentage => {
+        if (percentage < minPercentage) return minPercentage;
+        if (percentage > maxPercentage) return maxPercentage;
+        return percentage;
       });
 
-      // Normalisation finale pour atteindre exactement 100%
-      const totalPercentage = adjustedPercentages.reduce((acc, p) => acc + p, 0);
-      const normalizedPercentages = adjustedPercentages.map(p => (p / totalPercentage) * 100);
+      // Normalize percentages to sum to 100
+      const totalPercentage = adjustedPercentages.reduce((acc, percentage) => acc + percentage, 0);
+      adjustedPercentages = adjustedPercentages.map(percentage => (percentage / totalPercentage) * 100);
 
-      // Création des données finales avec TOUS les investissements
-      return investments.map((investment, index) => ({
-        name: investment.name_invest,
-        value: normalizedPercentages[index],
-        color: getColorForIndex(index),
-        potential_return: investment.potential_return || 0
+      // Now we can safely use adjustedPercentages
+      const filteredWithValues = filtered.map((investment, index) => ({
+        ...investment,
+        id: investment.id,
+        value: adjustedPercentages[index]
       }));
+      setEligibleInvestments(filteredWithValues);
+      if (onInvestmentsChange) {
+        onInvestmentsChange(filteredWithValues);
+      }
+
+      return filtered.map((investment, index) => {
+        return {
+          name: investment.name_invest,
+          value: adjustedPercentages[index],
+          color: investment.color_invest || 'hsl(var(--primary))',
+          potential_return: investment.potential_return
+        };
+      });
     };
 
-    const getColorForIndex = (index: number) => {
-      const colors = ["#9b87f5", "#7E69AB", "#D6BCFA", "#B794F4", "#805AD5"];
-      return colors[index % colors.length];
-    };
-
-    setData(calculateAllocation());
-  }, [riskLevel, investments, amount]);
-
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const item = payload[0];
-      const value = item.value;
-      const amountValue = (amount * value) / 100;
-      const potentialReturn = item.payload.potential_return;
-      const annualReturn = (amountValue * potentialReturn) / 100;
-
-      return (
-        <div className="glassmorphism p-3 rounded-lg space-y-1">
-          <p className="text-sm font-medium">{item.name}</p>
-          <p className="text-sm text-muted-foreground">{value.toFixed(1)}%</p>
-          <p className="text-sm font-medium">
-            {new Intl.NumberFormat("fr-FR", {
-              style: "currency",
-              currency: "EUR",
-            }).format(amountValue)}
-          </p>
-          <div className="border-t border-border/50 pt-1 mt-1">
-            <p className="text-sm text-muted-foreground">APY: {potentialReturn}%</p>
-            <p className="text-sm font-medium text-green-600">
-              {new Intl.NumberFormat("fr-FR", {
-                style: "currency",
-                currency: "EUR",
-              }).format(annualReturn)}/an
-            </p>
-          </div>
-        </div>
-      );
+    const newData = calculateAllocation();
+    if (Array.isArray(newData)) {
+      setData(newData);
+    } else {
+      setData([]);
     }
-    return null;
-  };
+  }, [investments, riskLevel, amount, onInvestmentsChange]);
 
   if (loading) {
-    return <div className="w-full h-[300px] flex items-center justify-center">
-      <p className="text-muted-foreground">Chargement...</p>
-    </div>;
+    return <div className="flex items-center justify-center h-[300px] animate-pulse">Loading...</div>;
+  }
+
+  if (error) {
+    return <div className="text-red-500 animate-in fade-in">{error}</div>;
   }
 
   if (!amount) {
-    return <div className="w-full h-[300px] flex items-center justify-center">
-      <p className="text-muted-foreground">Rentrez vos fonds à investir</p>
-    </div>;
-  }
-
-  if (data.length > 0) {
-    const globalAPY = calculateGlobalAPY();
-    const globalAnnualReturn = (amount * globalAPY) / 100;
-
     return (
-      <div className="w-full space-y-4">
-        <div className="text-center space-y-1">
-          <p className="text-sm text-muted-foreground">APY Global</p>
-          <p className="text-lg font-medium">{globalAPY.toFixed(2)}%</p>
-          <p className="text-sm font-medium text-green-600">
-            {new Intl.NumberFormat("fr-FR", {
-              style: "currency",
-              currency: "EUR",
-            }).format(globalAnnualReturn)}/an
-          </p>
-        </div>
-        <div className="h-[300px] animate-in">
-          <ResponsiveContainer>
-            <PieChart>
-              <Pie
-                data={data}
-                innerRadius={60}
-                outerRadius={100}
-                paddingAngle={2}
-                dataKey="value"
-                animationBegin={0}
-                animationDuration={1000}
-              >
-                {data.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip content={<CustomTooltip />} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
+      <div className="flex items-center justify-center h-[300px] text-muted-foreground text-sm animate-in fade-in slide-in-from-bottom-4">
+        Saisissez un montant pour voir votre allocation
       </div>
     );
   }
 
-  return <div className="w-full h-[300px] flex items-center justify-center">
-    <p className="text-muted-foreground">Aucune option d'investissement disponible</p>
-  </div>;
+  if (data.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-[300px] text-muted-foreground text-sm animate-in fade-in slide-in-from-bottom-4">
+        Aucun investissement éligible trouvé pour le montant et le niveau de risque actuels
+      </div>
+    );
+  }
+
+  const globalAPY = calculateGlobalAPY();
+
+  return (
+    <div className="w-full space-y-4">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-muted-foreground">Allocation d'Actifs</span>
+        <span className="text-sm font-medium text-green-600">
+          APY Global : {globalAPY.toFixed(2)}%
+          <span className="text-xs ml-1">
+            ({(amount * (globalAPY / 100)).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}/an)
+          </span>
+        </span>
+      </div>
+      <div className="h-[260px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data}
+              cx="50%"
+              cy="50%"
+              innerRadius={80}
+              outerRadius={120}
+              paddingAngle={2}
+              dataKey="value"
+              fill="hsl(var(--primary))"
+              stroke="hsl(var(--border))"
+            >
+              {data.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip
+              formatter={(value: number, name: string, item: any) => {
+                const allocatedAmount = (value / 100) * amount;
+                return [
+                  <>
+                    <span style={{ color: 'hsl(var(--foreground))' }}>
+                      {name}
+                      <br /><br />
+                      {`${value.toFixed(1)}% (${allocatedAmount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })})`}
+                      <br />
+                    </span>
+                    <span style={{ color: 'rgb(22 163 74)', fontWeight: 'bold' }}>{`APY: ${item.payload.potential_return}%`}</span>
+                  </>,
+                  undefined
+                ];
+              }}
+              contentStyle={{
+                backgroundColor: 'hsl(var(--background))',
+                border: '1px solid hsl(var(--border))',
+                borderRadius: '6px',
+                padding: '8px',
+                fontSize: '14px',
+                whiteSpace: 'pre-line',
+                color: 'hsl(var(--foreground))'
+              }}
+              labelStyle={{
+                color: 'hsl(var(--foreground))'
+              }}
+              itemStyle={{
+                color: 'hsl(var(--foreground))'
+              }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
 };

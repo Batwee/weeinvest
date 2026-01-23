@@ -8,9 +8,14 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 
 export type InvestmentOptions = {
   id: number;
+  id_invest: number;
   name_invest: string;
   description: string;
   risk_level: number;
   type: string;
   minimum_investment?: number;
+  potential_return: number;
+  weight_modifier?: number;
+  color_invest?: string;
+  exemples?: string;
 };
