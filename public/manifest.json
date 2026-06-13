@@ -1,0 +1,37 @@
+{
+  "name": "WeeInvest",
+  "short_name": "WeeInvest",
+  "description": "Your personal investment portfolio manager",
+  "start_url": "/",
+  "display": "standalone",
+  "display_override": ["fullscreen", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "scope": "/",
+  "prefer_related_applications": false,
+  "categories": ["finance", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Portfolio",
+      "url": "/",
+      "description": "View your investment portfolio"
+    }
+  ],
+  "related_applications": [],
+  "screenshots": [],
+  "icons": [
+    {
+      "src": "./icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
