@@ -5,16 +5,17 @@ import { DollarSign } from "lucide-react";
 
 interface InvestmentInputProps {
   onChange: (value: number) => void;
+  value?: number;
 }
 
-export const InvestmentInput = ({ onChange }: InvestmentInputProps) => {
-  const [value, setValue] = useState("");
-
-  const formatValue = (val: string) => {
-    const number = val.replace(/[^0-9]/g, "");
-    if (number === "") return "";
-    return new Intl.NumberFormat("fr-FR").format(parseInt(number));
+export const InvestmentInput = ({ onChange, value: initialValue }: InvestmentInputProps) => {
+  const formatValue = (val: string | number) => {
+    const numberStr = typeof val === "string" ? val.replace(/[^0-9]/g, "") : val.toString();
+    if (numberStr === "" || isNaN(parseInt(numberStr))) return "";
+    return new Intl.NumberFormat("fr-FR").format(parseInt(numberStr));
   };
+
+  const [value, setValue] = useState(initialValue ? formatValue(initialValue) : "");
 
   useEffect(() => {
     const numericValue = parseInt(value.replace(/[^0-9]/g, "")) || 0;
