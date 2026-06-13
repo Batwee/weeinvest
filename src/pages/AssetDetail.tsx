@@ -21,6 +21,39 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useAuth } from "@/hooks/useAuth";
 
+type AssetDetailCache = {
+  date: string;
+  investment: InvestmentOptions | null;
+  assets: AssetDetailType[];
+  affiliates: Affiliate[];
+};
+
+const getTodayDate = () => new Date().toISOString().split("T")[0];
+
+const getAssetDetailCacheKey = (id: string) => `asset-detail-cache-${id}`;
+
+const readAssetDetailCache = (id: string): AssetDetailCache | null => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const rawCache = localStorage.getItem(getAssetDetailCacheKey(id));
+    return rawCache ? JSON.parse(rawCache) : null;
+  } catch (error) {
+    console.error("Failed to read asset detail cache:", error);
+    return null;
+  }
+};
+
+const writeAssetDetailCache = (id: string, payload: AssetDetailCache) => {
+  if (typeof window === "undefined") return;
+
+  try {
+    localStorage.setItem(getAssetDetailCacheKey(id), JSON.stringify(payload));
+  } catch (error) {
+    console.error("Failed to write asset detail cache:", error);
+  }
+};
+
 const AssetDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -35,10 +68,37 @@ const AssetDetailPage = () => {
     await supabase.auth.signOut();
   };
 
+  const updateCache = (
+    nextInvestment: InvestmentOptions | null = investment,
+    nextAssets: AssetDetailType[] = assets,
+    nextAffiliates: Affiliate[] = affiliates
+  ) => {
+    if (!id) return;
+
+    writeAssetDetailCache(id, {
+      date: getTodayDate(),
+      investment: nextInvestment,
+      assets: nextAssets,
+      affiliates: nextAffiliates,
+    });
+  };
+
   useEffect(() => {
     const fetchAssetData = async () => {
       if (!id) return;
       setLoading(true);
+
+      const today = getTodayDate();
+      const cachedData = readAssetDetailCache(id);
+
+      if (cachedData && cachedData.date === today) {
+        setInvestment(cachedData.investment);
+        setAssets(cachedData.assets);
+        setAffiliates(cachedData.affiliates);
+        setLoading(false);
+        return;
+      }
+
       try {
         // Fetch investment option
         const { data: invData, error: invError } = await supabase
@@ -48,11 +108,10 @@ const AssetDetailPage = () => {
           .single();
         
         if (invError) throw invError;
-        setInvestment(invData);
+        let finalInvestment = invData;
 
         // Auto-update indices if needed (once per day)
         if (invData) {
-          const today = new Date().toISOString().split('T')[0];
           const needsFngUpdate = !invData.fng_updated_at || !invData.fng_updated_at.startsWith(today);
           const needsAltUpdate = !invData.altcoin_index_updated_at || !invData.altcoin_index_updated_at.startsWith(today);
 
@@ -123,18 +182,22 @@ const AssetDetailPage = () => {
               updates.altcoin_index_updated_at = new Date().toISOString();
             }
 
-            const { data: updatedInv, error: updateError } = await supabase
-              .from('investment_options')
-              .update(updates)
-              .eq('id_invest', id)
-              .select()
-              .single();
+            if (Object.keys(updates).length > 0) {
+              const { data: updatedInv, error: updateError } = await supabase
+                .from('investment_options')
+                .update(updates)
+                .eq('id_invest', id)
+                .select()
+                .single();
 
-            if (!updateError && updatedInv) {
-              setInvestment(updatedInv);
+              if (!updateError && updatedInv) {
+                finalInvestment = updatedInv;
+              }
             }
           }
         }
+
+        setInvestment(finalInvestment);
 
         // Fetch asset details (tokens, stocks, etc.)
         const { data: assetsData } = await supabase
@@ -142,9 +205,11 @@ const AssetDetailPage = () => {
           .select('*')
           .eq('id_invest', id);
         
-        if (assetsData) {
-          setAssets([...assetsData].sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0)));
-        }
+        const sortedAssets = assetsData
+          ? [...assetsData].sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0))
+          : [];
+
+        setAssets(sortedAssets);
 
         // Fetch affiliates
         const { data: affiliatesData } = await supabase
@@ -152,7 +217,14 @@ const AssetDetailPage = () => {
           .select('*')
           .eq('id_invest', id);
         
-        if (affiliatesData) setAffiliates(affiliatesData);
+        const nextAffiliates = affiliatesData || [];
+        setAffiliates(nextAffiliates);
+        writeAssetDetailCache(id, {
+          date: today,
+          investment: finalInvestment,
+          assets: sortedAssets,
+          affiliates: nextAffiliates,
+        });
       } catch (err) {
         console.error("Error fetching asset details:", err);
       } finally {
@@ -166,7 +238,7 @@ const AssetDetailPage = () => {
   const handleTechnicalAnalysis = async (asset: AssetDetailType) => {
     setLoadingTechnical(prev => ({ ...prev, [asset.id_asset]: true }));
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayDate();
       
       // 1. Check if already updated today
       if (asset.RSI_SMA_updated_at?.startsWith(today) && asset.RSI) {
@@ -293,13 +365,38 @@ const AssetDetailPage = () => {
       
       console.log("Mise à jour réussie dans Supabase:", updatedData);
       
-      setAssets(prev => prev.map(a => 
+      const nextAssets = assets.map((a) =>
         a.id_asset === asset.id_asset ? { ...a, ...updates } : a
-      ));
+      );
+
+      setAssets(nextAssets);
+      updateCache(investment, nextAssets, affiliates);
     } catch (err) {
       console.error("Technical analysis failed:", err);
     } finally {
       setLoadingTechnical(prev => ({ ...prev, [asset.id_asset]: false }));
+    }
+  };
+
+  const handleAffiliateClick = async (affiliate: Affiliate) => {
+    const nextClickCount = (affiliate.click_count || 0) + 1;
+    const nextAffiliates = affiliates.map((item) =>
+      item.id_affiliate === affiliate.id_affiliate
+        ? { ...item, click_count: nextClickCount }
+        : item
+    );
+
+    setAffiliates(nextAffiliates);
+    updateCache(investment, assets, nextAffiliates);
+    window.open(affiliate.link, "_blank");
+
+    const { error } = await supabase
+      .from("affiliates")
+      .update({ click_count: nextClickCount })
+      .eq("id_affiliate", affiliate.id_affiliate);
+
+    if (error) {
+      console.error("Failed to update affiliate click count:", error);
     }
   };
 
@@ -526,9 +623,12 @@ const AssetDetailPage = () => {
                     <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
                       {affiliate.description}
                     </p>
+                    <p className="text-[11px] text-muted-foreground mb-3">
+                      {affiliate.click_count || 0} clic{(affiliate.click_count || 0) > 1 ? "s" : ""}
+                    </p>
                     <Button 
                       className="w-full gap-2" 
-                      onClick={() => window.open(affiliate.link, '_blank')}
+                      onClick={() => handleAffiliateClick(affiliate)}
                     >
                       S'inscrire <ExternalLink className="w-4 h-4" />
                     </Button>

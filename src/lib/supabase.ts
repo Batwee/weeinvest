@@ -43,4 +43,5 @@ export type Affiliate = {
   description: string;
   link: string;
   id_invest: number;
+  click_count?: number | null;
 };
