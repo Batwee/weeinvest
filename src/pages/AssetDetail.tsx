@@ -31,6 +31,7 @@ type AssetDetailCache = {
 const getTodayDate = () => new Date().toISOString().split("T")[0];
 
 const getAssetDetailCacheKey = (id: string) => `asset-detail-cache-${id}`;
+const ANALYSIS_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 const readAssetDetailCache = (id: string): AssetDetailCache | null => {
   if (typeof window === "undefined") return null;
@@ -52,6 +53,30 @@ const writeAssetDetailCache = (id: string, payload: AssetDetailCache) => {
   } catch (error) {
     console.error("Failed to write asset detail cache:", error);
   }
+};
+
+const getRemainingAnalysisCooldown = (updatedAt?: string) => {
+  if (!updatedAt) return 0;
+
+  const lastUpdate = new Date(updatedAt).getTime();
+  if (Number.isNaN(lastUpdate)) return 0;
+
+  return Math.max(0, ANALYSIS_COOLDOWN_MS - (Date.now() - lastUpdate));
+};
+
+const isAnalysisLocked = (updatedAt?: string) => getRemainingAnalysisCooldown(updatedAt) > 0;
+
+const formatRemainingCooldown = (updatedAt?: string) => {
+  const remaining = getRemainingAnalysisCooldown(updatedAt);
+  if (remaining <= 0) return "";
+
+  const totalMinutes = Math.ceil(remaining / (60 * 1000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours === 0) return `${minutes} min`;
+  if (minutes === 0) return `${hours} h`;
+  return `${hours} h ${minutes} min`;
 };
 
 const AssetDetailPage = () => {
@@ -236,12 +261,14 @@ const AssetDetailPage = () => {
   }, [id]);
 
   const handleTechnicalAnalysis = async (asset: AssetDetailType) => {
+    if (isAnalysisLocked(asset.RSI_SMA_updated_at)) {
+      return;
+    }
+
     setLoadingTechnical(prev => ({ ...prev, [asset.id_asset]: true }));
     try {
-      const today = getTodayDate();
-      
-      // 1. Check if already updated today
-      if (asset.RSI_SMA_updated_at?.startsWith(today) && asset.RSI) {
+      // 1. Check if already updated in the last 24 hours
+      if (isAnalysisLocked(asset.RSI_SMA_updated_at)) {
         return;
       }
 
@@ -557,7 +584,7 @@ const AssetDetailPage = () => {
                 {asset.symbol && (
                   <Button 
                     onClick={() => handleTechnicalAnalysis(asset)}
-                    disabled={loadingTechnical[asset.id_asset]}
+                    disabled={loadingTechnical[asset.id_asset] || isAnalysisLocked(asset.RSI_SMA_updated_at)}
                     size="sm"
                     variant="secondary"
                     className="h-8 gap-2 px-3"
@@ -567,30 +594,34 @@ const AssetDetailPage = () => {
                     ) : (
                       <Calculator className="w-4 h-4" />
                     )}
-                    Lancer l'analyse
+                    {isAnalysisLocked(asset.RSI_SMA_updated_at) ? `Disponible dans ${formatRemainingCooldown(asset.RSI_SMA_updated_at)}` : "Lancer l'analyse"}
                   </Button>
                 )}
               </CardHeader>
               {asset.symbol && (
                 <CardContent className="space-y-2 px-4 pb-3 pt-0">
-                  <div className="grid grid-cols-1 gap-1 md:grid-cols-3">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-xs text-muted-foreground font-semibold">RSI :</span>
-                      <span className="font-bold">
-                        {asset.RSI !== null && asset.RSI !== undefined ? asset.RSI : "—"}
-                      </span>
-                      {asset.RSI !== null && asset.RSI !== undefined && asset.RSI < 35 && <TrendingUp className="w-4 h-4 text-green-500" />}
-                      {asset.RSI !== null && asset.RSI !== undefined && asset.RSI > 70 && <TrendingDown className="w-4 h-4 text-red-500" />}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-xs text-muted-foreground font-semibold">RSI :</span>
+                        <span className="font-bold">
+                          {asset.RSI !== null && asset.RSI !== undefined ? asset.RSI : "—"}
+                        </span>
+                        {asset.RSI !== null && asset.RSI !== undefined && asset.RSI < 35 && <TrendingUp className="w-4 h-4 text-green-500" />}
+                        {asset.RSI !== null && asset.RSI !== undefined && asset.RSI > 70 && <TrendingDown className="w-4 h-4 text-red-500" />}
+                      </div>
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-xs text-muted-foreground font-semibold">SMA :</span>
+                        <span className="font-medium">{asset.SMA || "Non calculé"}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-xs text-muted-foreground font-semibold">SMA :</span>
-                      <span className="font-medium">{asset.SMA || "Non calculé"}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-xs text-muted-foreground font-semibold">Conclusion :</span>
-                      <Badge variant={asset.conclusion?.includes("Achat") ? "default" : "secondary"}>
-                        {asset.conclusion || "En attente d'analyse"}
-                      </Badge>
+                    <div className="space-y-1 text-sm text-right">
+                      <div className="text-xs text-muted-foreground font-semibold">Conclusion :</div>
+                      <div className="flex justify-end">
+                        <Badge variant={asset.conclusion?.includes("Achat") ? "default" : "secondary"}>
+                          {asset.conclusion || "En attente d'analyse"}
+                        </Badge>
+                      </div>
                     </div>
                   </div>
                   {asset.RSI_SMA_updated_at && (
