@@ -158,30 +158,16 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
 
     return (
       <div className="w-full -mt-2">
-        <div className="text-center mb-1">
-          <p className="text-sm font-bold text-green-600">
-            {globalAPY.toFixed(2)}% APY
-            {amount > 0 && (
-              <span className="ml-2 text-muted-foreground font-medium">
-                ({new Intl.NumberFormat("fr-FR", {
-                  style: "currency",
-                  currency: "EUR",
-                  maximumFractionDigits: 0
-                }).format(globalAnnualReturn)}/an)
-              </span>
-            )}
-          </p>
-        </div>
-        <div className="h-[320px] w-full animate-in -mx-4">
+        <div className="h-[300px] w-full animate-in -mx-2 relative">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
               <Pie
                 data={data}
                 cx="50%"
                 cy="50%"
-                innerRadius="50%"
-                outerRadius="90%"
-                paddingAngle={4}
+                innerRadius="60%"
+                outerRadius="80%"
+                paddingAngle={2}
                 dataKey="value"
                 stroke="none"
               >
@@ -189,9 +175,23 @@ export const AllocationChart = ({ riskLevel, amount }: AllocationChartProps) => 
                   <Cell key={`cell-${index}`} fill={entry.color} />
                 ))}
               </Pie>
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip content={<CustomTooltip />} wrapperStyle={{ zIndex: 50 }} />
             </PieChart>
           </ResponsiveContainer>
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10">
+            <p className="text-sm font-bold text-green-600">
+              {globalAPY.toFixed(2)}% APY
+            </p>
+            {amount > 0 && (
+              <p className="text-xs text-muted-foreground font-medium">
+                {new Intl.NumberFormat("fr-FR", {
+                  style: "currency",
+                  currency: "EUR",
+                  maximumFractionDigits: 0
+                }).format(globalAnnualReturn)}/an
+              </p>
+            )}
+          </div>
         </div>
       </div>
     );

@@ -449,12 +449,14 @@ const AssetDetailPage = () => {
     <div className="min-h-screen bg-gradient-to-b from-background to-secondary/20 py-4 px-4">
       <div className="max-w-4xl mx-auto space-y-4">
         <header className="flex items-center justify-between mb-2 pb-3 border-b border-white/10">
-          <button 
-            onClick={() => navigate("/")}
-            className="text-2xl font-black tracking-tighter bg-gradient-to-r from-primary via-purple-500 to-indigo-600 bg-clip-text text-transparent hover:opacity-80 transition-opacity"
+          <Button 
+            variant="ghost" 
+            onClick={() => navigate("/")} 
+            className="h-8 px-2 hover:bg-secondary/50"
           >
-            WeeInvest
-          </button>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Retour
+          </Button>
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-white/40 backdrop-blur-md rounded-full shadow-sm text-xs border border-white/20">
               <User className="w-3 h-3 text-primary" />
@@ -465,15 +467,6 @@ const AssetDetailPage = () => {
             </Button>
           </div>
         </header>
-
-        <Button 
-          variant="ghost" 
-          onClick={() => navigate("/")} 
-          className="mb-0 h-8 px-2 hover:bg-secondary/50"
-        >
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Retour
-        </Button>
 
         <header className="space-y-3">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -594,7 +587,7 @@ const AssetDetailPage = () => {
                       ) : (
                         <Calculator className="w-4 h-4" />
                       )}
-                      {canAnalyze ? "Analyse" : `Disponible dans ${formatRemainingCooldown(asset.RSI_SMA_updated_at)}`}
+                      {canAnalyze ? "Analyse" : `Dans ${formatRemainingCooldown(asset.RSI_SMA_updated_at)}`}
                     </Button>
                   )}
                 </CardHeader>

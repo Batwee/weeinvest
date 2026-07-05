@@ -67,7 +67,7 @@ const Index = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
           <div className="lg:col-span-5 space-y-4">
-            <div className="glassmorphism rounded-2xl shadow-xl border border-white/20 overflow-hidden">
+            <div className={`glassmorphism rounded-2xl shadow-xl border border-white/20 overflow-hidden ${isParamsExpanded ? 'pb-6' : 'pb-1'}`}>
               <button 
                 onClick={() => setIsParamsExpanded(!isParamsExpanded)}
                 className="w-full p-4 flex items-center justify-between hover:bg-white/20 transition-colors group"
@@ -99,13 +99,13 @@ const Index = () => {
                 </div>
               </button>
               
-              <div className={`px-6 pb-6 space-y-6 transition-all duration-300 ease-in-out ${isParamsExpanded ? 'opacity-100 max-h-[500px] border-t border-white/10 pt-6' : 'opacity-0 max-h-0 overflow-hidden'}`}>
+              <div className={`px-6 space-y-6 transition-all duration-300 ease-in-out ${isParamsExpanded ? 'opacity-100 max-h-[500px] border-t border-white/10 pt-6' : 'opacity-0 max-h-0 overflow-hidden'}`}>
                 <RiskSlider onChange={setRiskLevel} />
                 <InvestmentInput onChange={setAmount} value={amount} />
               </div>
             </div>
             
-            <div className="glassmorphism rounded-2xl p-4 shadow-xl border border-white/20">
+            <div className="glassmorphism rounded-2xl p-2 shadow-xl border border-white/20">
               <AllocationChart riskLevel={riskLevel} amount={amount} />
             </div>
           </div>

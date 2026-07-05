@@ -85,7 +85,7 @@ export const AllocationSummary = ({ riskLevel, amount }: AllocationSummaryProps)
   return (
     <div className="space-y-4">
       <h3 className="text-lg font-semibold flex items-center gap-2">
-        Résumé de l'allocation
+        Allocation :
         <span className="text-xs font-normal text-muted-foreground">(Cliquer pour voir le détail)</span>
       </h3>
       <div className="grid grid-cols-1 gap-3">
@@ -104,7 +104,7 @@ export const AllocationSummary = ({ riskLevel, amount }: AllocationSummaryProps)
                 <div className="flex flex-col">
                   <div className="flex items-center gap-2">
                     <span className="font-bold group-hover:text-primary transition-colors">{item.name}</span>
-                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-white/10 text-muted-foreground border-none">
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-white/10 border-none" style={{ color: item.color }}>
                       {item.percentage.toFixed(1)}%
                     </Badge>
                   </div>
