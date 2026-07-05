@@ -70,13 +70,8 @@ const formatRemainingCooldown = (updatedAt?: string) => {
   const remaining = getRemainingAnalysisCooldown(updatedAt);
   if (remaining <= 0) return "";
 
-  const totalMinutes = Math.ceil(remaining / (60 * 1000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours === 0) return `${minutes} min`;
-  if (minutes === 0) return `${hours} h`;
-  return `${hours} h ${minutes} min`;
+  const totalHours = Math.ceil(remaining / (60 * 60 * 1000));
+  return `${totalHours} h`;
 };
 
 const AssetDetailPage = () => {
@@ -568,71 +563,77 @@ const AssetDetailPage = () => {
 
         <div className="grid grid-cols-1 gap-3">
           <h2 className="text-xl font-semibold">{isSavings ? "Supports d'épargne" : "Composants de l'allocation"}</h2>
-          {assets.map((asset) => (
-            <Card key={asset.id_asset} className="glassmorphism border-none overflow-hidden group">
-              <CardHeader className="flex flex-row items-center justify-between px-4 py-3 pb-2">
-                <div>
-                  <CardTitle className={!asset.symbol ? "text-xl font-bold" : "text-lg"}>
-                    {asset.name_asset || asset.name}
-                  </CardTitle>
-                  {asset.symbol && (
-                    <CardDescription className="font-mono text-xs text-primary">
-                      {asset.symbol}
-                    </CardDescription>
-                  )}
-                </div>
-                {asset.symbol && (
-                  <Button 
-                    onClick={() => handleTechnicalAnalysis(asset)}
-                    disabled={loadingTechnical[asset.id_asset] || isAnalysisLocked(asset.RSI_SMA_updated_at)}
-                    size="sm"
-                    variant="secondary"
-                    className="h-8 gap-2 px-3"
-                  >
-                    {loadingTechnical[asset.id_asset] ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Calculator className="w-4 h-4" />
+          {assets.map((asset) => {
+            const lastUpdate = asset.RSI_SMA_updated_at ? new Date(asset.RSI_SMA_updated_at).getTime() : 0;
+            const timeSinceLastUpdate = Date.now() - lastUpdate;
+            const canAnalyze = timeSinceLastUpdate >= ANALYSIS_COOLDOWN_MS;
+            
+            return (
+              <Card key={asset.id_asset} className="glassmorphism border-none overflow-hidden group">
+                <CardHeader className="flex flex-row items-center justify-between px-4 py-3 pb-2">
+                  <div>
+                    <CardTitle className={!asset.symbol ? "text-xl font-bold" : "text-lg"}>
+                      {asset.name_asset || asset.name}
+                    </CardTitle>
+                    {asset.symbol && (
+                      <CardDescription className="font-mono text-xs text-primary">
+                        {asset.symbol}
+                      </CardDescription>
                     )}
-                    {isAnalysisLocked(asset.RSI_SMA_updated_at) ? `Disponible dans ${formatRemainingCooldown(asset.RSI_SMA_updated_at)}` : "Lancer l'analyse"}
-                  </Button>
-                )}
-              </CardHeader>
-              {asset.symbol && (
-                <CardContent className="space-y-2 px-4 pb-3 pt-0">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-xs text-muted-foreground font-semibold">RSI :</span>
-                        <span className="font-bold">
-                          {asset.RSI !== null && asset.RSI !== undefined ? asset.RSI : "—"}
-                        </span>
-                        {asset.RSI !== null && asset.RSI !== undefined && asset.RSI < 35 && <TrendingUp className="w-4 h-4 text-green-500" />}
-                        {asset.RSI !== null && asset.RSI !== undefined && asset.RSI > 70 && <TrendingDown className="w-4 h-4 text-red-500" />}
-                      </div>
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-xs text-muted-foreground font-semibold">SMA :</span>
-                        <span className="font-medium">{asset.SMA || "Non calculé"}</span>
-                      </div>
-                    </div>
-                    <div className="space-y-1 text-sm text-right">
-                      <div className="text-xs text-muted-foreground font-semibold">Conclusion :</div>
-                      <div className="flex justify-end">
-                        <Badge variant={asset.conclusion?.includes("Achat") ? "default" : "secondary"}>
-                          {asset.conclusion || "En attente d'analyse"}
-                        </Badge>
-                      </div>
-                    </div>
                   </div>
-                  {asset.RSI_SMA_updated_at && (
-                    <p className="text-[10px] text-muted-foreground">
-                      Dernière analyse le {new Date(asset.RSI_SMA_updated_at).toLocaleString()}
-                    </p>
+                  {asset.symbol && (
+                    <Button 
+                      onClick={() => handleTechnicalAnalysis(asset)}
+                      disabled={!canAnalyze || loadingTechnical[asset.id_asset]}
+                      size="sm"
+                      variant={canAnalyze ? "secondary" : "outline"}
+                      className={`h-8 gap-2 px-3 ${!canAnalyze ? "bg-gray-100 text-gray-400" : ""}`}
+                    >
+                      {loadingTechnical[asset.id_asset] ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Calculator className="w-4 h-4" />
+                      )}
+                      {canAnalyze ? "Analyse" : `Disponible dans ${formatRemainingCooldown(asset.RSI_SMA_updated_at)}`}
+                    </Button>
                   )}
-                </CardContent>
-              )}
-            </Card>
-          ))}
+                </CardHeader>
+                {asset.symbol && (
+                  <CardContent className="space-y-2 px-4 pb-3 pt-0">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className="text-xs text-muted-foreground font-semibold">RSI :</span>
+                          <span className="font-bold">
+                            {asset.RSI !== null && asset.RSI !== undefined ? asset.RSI : "—"}
+                          </span>
+                          {asset.RSI !== null && asset.RSI !== undefined && asset.RSI < 35 && <TrendingUp className="w-4 h-4 text-green-500" />}
+                          {asset.RSI !== null && asset.RSI !== undefined && asset.RSI > 70 && <TrendingDown className="w-4 h-4 text-red-500" />}
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className="text-xs text-muted-foreground font-semibold">SMA :</span>
+                          <span className="font-medium">{asset.SMA || "Non calculé"}</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1 text-sm text-right">
+                        <div className="text-xs text-muted-foreground font-semibold">Conclusion :</div>
+                        <div className="flex justify-end">
+                          <Badge variant={asset.conclusion?.includes("Achat") ? "default" : "secondary"}>
+                            {asset.conclusion || "En attente d'analyse"}
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+                    {asset.RSI_SMA_updated_at && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Dernière analyse le {new Date(asset.RSI_SMA_updated_at).toLocaleString()}
+                      </p>
+                    )}
+                  </CardContent>
+                )}
+              </Card>
+            );
+          })}
         </div>
 
         {affiliates.length > 0 && (
