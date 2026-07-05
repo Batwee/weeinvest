@@ -277,13 +277,11 @@ const AssetDetailPage = () => {
 
       // 2. Fetch SMA
       const smaUrl = `https://www.alphavantage.co/query?function=SMA&symbol=${symbol}&interval=daily&time_period=5&series_type=open&apikey=${apiKey}`;
-      console.log('Récupération de la SMA pour le symbole:', symbol);
       const smaResponse = await fetch(smaUrl);
       const smaData = await smaResponse.json();
       
       // 3. Fetch RSI
       const rsiUrl = `https://www.alphavantage.co/query?function=RSI&symbol=${symbol}&interval=daily&time_period=3&series_type=open&apikey=${apiKey}`;
-      console.log('Récupération du RSI pour le symbole:', symbol);
       const rsiResponse = await fetch(rsiUrl);
       const rsiData = await rsiResponse.json();
 
@@ -307,17 +305,16 @@ const AssetDetailPage = () => {
           const rsiAverage = rsiValues.reduce((a, b) => a + b, 0) / rsiValues.length;
           
           if (!isNaN(rsiAverage)) {
-            finalRSI = parseFloat(rsiAverage.toFixed(2));
-            console.log(`RSI calculé pour ${symbol}:`, finalRSI);
-            
-            if (finalRSI < 35) {
-              finalConclusion = "Achat fort conseillé";
-            } else if (finalRSI > 70) {
-              finalConclusion = "Vente conseillée";
-            } else {
-              finalConclusion = "Marché neutre";
+              finalRSI = parseFloat(rsiAverage.toFixed(2));
+              
+              if (finalRSI < 35) {
+                finalConclusion = "Achat fort conseillé";
+              } else if (finalRSI > 70) {
+                finalConclusion = "Vente conseillée";
+              } else {
+                finalConclusion = "Marché neutre";
+              }
             }
-          }
         }
       } else {
         console.warn(`Aucune donnée RSI reçue pour ${symbol}:`, rsiData);
@@ -346,8 +343,6 @@ const AssetDetailPage = () => {
           const slope = denominator !== 0 ? (n * sumXY - sumX * sumY) / denominator : 0;
           const normalizedSlope = smaValues[0] !== 0 ? (slope / smaValues[0]) * 100 : 0;
 
-          console.log(`SMA Slope pour ${symbol}:`, { slope, normalizedSlope });
-
           // Déterminer la tendance SMA
           if (normalizedSlope > 0.5) {
             finalSMA = 'Forte hausse 📈';
@@ -372,8 +367,6 @@ const AssetDetailPage = () => {
         RSI_SMA_updated_at: new Date().toISOString()
       };
 
-      console.log(`Envoi des mises à jour à Supabase pour ${symbol}:`, updates);
-
       const { data: updatedData, error: updateError } = await supabase
         .from('asset_details')
         .update(updates)
@@ -384,8 +377,6 @@ const AssetDetailPage = () => {
         console.error("Supabase update error:", updateError);
         throw updateError;
       }
-      
-      console.log("Mise à jour réussie dans Supabase:", updatedData);
       
       const nextAssets = assets.map((a) =>
         a.id_asset === asset.id_asset ? { ...a, ...updates } : a
