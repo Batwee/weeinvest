@@ -99,7 +99,7 @@ export const AssetDetailsModal = ({ investmentId, onClose }: AssetDetailsModalPr
     
     setLoadingRSI(prev => ({ ...prev, [assetId]: true }));
     
-    try {
+    try { // new 10OAPG7Z7APD7LIH old YUHV9AL0EAZS3VU5
       const requestUrl = `https://www.alphavantage.co/query?function=RSI&symbol=${symbol}&interval=weekly&time_period=10&series_type=open&apikey=YUHV9AL0EAZS3VU5`;
       console.log('Fetching RSI for symbol:', symbol);
       console.log('Request URL:', requestUrl);
@@ -183,13 +183,6 @@ export const AssetDetailsModal = ({ investmentId, onClose }: AssetDetailsModalPr
               <h2 className="text-lg font-medium">Description</h2>
               <p className="text-sm text-muted-foreground">{investment.description}</p>
             </div>
-
-            {investment.exemples && (
-              <div className="space-y-2 md:col-span-2">
-                <h2 className="text-lg font-medium">Exemples</h2>
-                <p className="text-sm text-muted-foreground">{investment.exemples}</p>
-              </div>
-            )}
 
             {assetDetails.length > 0 && (
               <div className="space-y-2 md:col-span-2">

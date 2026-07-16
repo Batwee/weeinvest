@@ -266,8 +266,8 @@ const AssetDetailPage = () => {
       if (isAnalysisLocked(asset.RSI_SMA_updated_at)) {
         return;
       }
-
-      const apiKey = "YUHV9AL0EAZS3VU5";
+//YUHV9AL0EAZS3VU5 10OAPG7Z7APD7LIH
+      const apiKey = "10OAPG7Z7APD7LIH";
       const symbol = asset.symbol;
 
       if (!symbol) {
