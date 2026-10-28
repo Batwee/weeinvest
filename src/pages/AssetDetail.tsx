@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { supabase, type InvestmentOptions, type AssetDetail as AssetDetailType, type Affiliate } from "@/lib/supabase";
+import { supabase, getApiKey, type InvestmentOptions, type AssetDetail as AssetDetailType, type Affiliate } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -266,12 +266,16 @@ const AssetDetailPage = () => {
       if (isAnalysisLocked(asset.RSI_SMA_updated_at)) {
         return;
       }
-//YUHV9AL0EAZS3VU5 10OAPG7Z7APD7LIH
-      const apiKey = "10OAPG7Z7APD7LIH";
+      const apiKey = await getApiKey('alphavantage');
       const symbol = asset.symbol;
 
       if (!symbol) {
         console.error("No symbol found for asset:", asset.name);
+        return;
+      }
+
+      if (!apiKey) {
+        console.error("Aucune clé API Alpha Vantage trouvée pour cet utilisateur");
         return;
       }
 

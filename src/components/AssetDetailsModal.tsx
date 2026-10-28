@@ -1,5 +1,6 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useInvestments } from "@/hooks/useInvestments";
+import { getApiKey } from "@/lib/supabase";
 import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 
@@ -99,8 +100,14 @@ export const AssetDetailsModal = ({ investmentId, onClose }: AssetDetailsModalPr
     
     setLoadingRSI(prev => ({ ...prev, [assetId]: true }));
     
-    try { // new 10OAPG7Z7APD7LIH old YUHV9AL0EAZS3VU5
-      const requestUrl = `https://www.alphavantage.co/query?function=RSI&symbol=${symbol}&interval=weekly&time_period=10&series_type=open&apikey=YUHV9AL0EAZS3VU5`;
+    try {
+      const apiKey = await getApiKey('alphavantage');
+      if (!apiKey) {
+        console.error('Aucune clé API Alpha Vantage trouvée pour cet utilisateur');
+        return;
+      }
+
+      const requestUrl = `https://www.alphavantage.co/query?function=RSI&symbol=${symbol}&interval=weekly&time_period=10&series_type=open&apikey=${apiKey}`;
       console.log('Fetching RSI for symbol:', symbol);
       console.log('Request URL:', requestUrl);
       

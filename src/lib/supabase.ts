@@ -6,6 +6,28 @@ const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
+export const getApiKey = async (apiName: string): Promise<string | null> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    console.error("Aucun utilisateur authentifié pour récupérer la clé API");
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("api")
+    .select("api_key")
+    .eq("api_name", apiName)
+    .eq("id_user", user.id)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Échec de la récupération de la clé API:", error);
+    return null;
+  }
+
+  return data?.api_key ?? null;
+};
+
 export type InvestmentOptions = {
   id_invest: number;
   name_invest: string;
