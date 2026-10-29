@@ -4,6 +4,8 @@ import { supabase, getApiKey, type InvestmentOptions, type AssetDetail as AssetD
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/components/ui/use-toast";
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -17,7 +19,12 @@ import {
   TrendingUp as TrendUp,
   LogOut,
   KeyRound,
-  User
+  User,
+  Plus,
+  Pencil,
+  Trash2,
+  Check,
+  X
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useAuth } from "@/hooks/useAuth";
@@ -79,11 +86,19 @@ const AssetDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { toast } = useToast();
   const [investment, setInvestment] = useState<InvestmentOptions | null>(null);
   const [assets, setAssets] = useState<AssetDetailType[]>([]);
   const [affiliates, setAffiliates] = useState<Affiliate[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingTechnical, setLoadingTechnical] = useState<Record<number, boolean>>({});
+  const [newAssetName, setNewAssetName] = useState("");
+  const [newAssetSymbol, setNewAssetSymbol] = useState("");
+  const [addingAsset, setAddingAsset] = useState(false);
+  const [editingAssetId, setEditingAssetId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editSymbol, setEditSymbol] = useState("");
+  const [busyAssetId, setBusyAssetId] = useState<number | null>(null);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -102,6 +117,121 @@ const AssetDetailPage = () => {
       assets: nextAssets,
       affiliates: nextAffiliates,
     });
+  };
+
+  const handleAddAsset = async () => {
+    const name = newAssetName.trim();
+    const symbol = newAssetSymbol.trim().toUpperCase();
+
+    if (!name || !symbol) {
+      toast({ variant: "destructive", title: "Champs requis", description: "Renseignez le nom et le ticker." });
+      return;
+    }
+    if (!user || !id) return;
+
+    setAddingAsset(true);
+    try {
+      const { data, error } = await supabase
+        .from("asset_details")
+        .insert({ name_asset: name, symbol, id_invest: Number(id), id_user: user.id })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const nextAssets = [...assets, data as AssetDetailType].sort(
+        (a, b) => (b.market_cap || 0) - (a.market_cap || 0)
+      );
+      setAssets(nextAssets);
+      updateCache(investment, nextAssets, affiliates);
+      setNewAssetName("");
+      setNewAssetSymbol("");
+      toast({ title: "Actif ajouté", duration: 2000 });
+    } catch (err) {
+      console.error("Failed to add asset:", err);
+      toast({
+        variant: "destructive",
+        title: "Ajout impossible",
+        description: err instanceof Error ? err.message : "Une erreur est survenue.",
+      });
+    } finally {
+      setAddingAsset(false);
+    }
+  };
+
+  const startEditAsset = (asset: AssetDetailType) => {
+    setEditingAssetId(asset.id_asset);
+    setEditName(asset.name_asset || asset.name || "");
+    setEditSymbol(asset.symbol || "");
+  };
+
+  const cancelEditAsset = () => {
+    setEditingAssetId(null);
+    setEditName("");
+    setEditSymbol("");
+  };
+
+  const handleSaveAsset = async (asset: AssetDetailType) => {
+    const name = editName.trim();
+    const symbol = editSymbol.trim().toUpperCase();
+
+    if (!name || !symbol) {
+      toast({ variant: "destructive", title: "Champs requis", description: "Renseignez le nom et le ticker." });
+      return;
+    }
+
+    setBusyAssetId(asset.id_asset);
+    try {
+      const { error } = await supabase
+        .from("asset_details")
+        .update({ name_asset: name, symbol })
+        .eq("id_asset", asset.id_asset);
+
+      if (error) throw error;
+
+      const nextAssets = assets.map((a) =>
+        a.id_asset === asset.id_asset ? { ...a, name_asset: name, symbol } : a
+      );
+      setAssets(nextAssets);
+      updateCache(investment, nextAssets, affiliates);
+      cancelEditAsset();
+      toast({ title: "Actif mis à jour", duration: 2000 });
+    } catch (err) {
+      console.error("Failed to update asset:", err);
+      toast({
+        variant: "destructive",
+        title: "Modification impossible",
+        description: err instanceof Error ? err.message : "Une erreur est survenue.",
+      });
+    } finally {
+      setBusyAssetId(null);
+    }
+  };
+
+  const handleDeleteAsset = async (asset: AssetDetailType) => {
+    setBusyAssetId(asset.id_asset);
+    try {
+      const { error } = await supabase
+        .from("asset_details")
+        .delete()
+        .eq("id_asset", asset.id_asset);
+
+      if (error) throw error;
+
+      const nextAssets = assets.filter((a) => a.id_asset !== asset.id_asset);
+      setAssets(nextAssets);
+      updateCache(investment, nextAssets, affiliates);
+      toast({ title: "Actif supprimé", duration: 2000 });
+    } catch (err) {
+      console.error("Failed to delete asset:", err);
+      toast({
+        variant: "destructive",
+        title: "Suppression impossible",
+        description: err instanceof Error ? err.message : "Une erreur est survenue.",
+      });
+    } finally {
+      setBusyAssetId(null);
+    }
   };
 
   useEffect(() => {
@@ -562,32 +692,94 @@ const AssetDetailPage = () => {
             
             return (
               <Card key={asset.id_asset} className="glassmorphism border-none overflow-hidden group">
-                <CardHeader className="flex flex-row items-center justify-between px-4 py-3 pb-2">
-                  <div>
-                    <CardTitle className={!asset.symbol ? "text-xl font-bold" : "text-lg"}>
-                      {asset.name_asset || asset.name}
-                    </CardTitle>
-                    {asset.symbol && (
-                      <CardDescription className="font-mono text-xs text-primary">
-                        {asset.symbol}
-                      </CardDescription>
-                    )}
-                  </div>
-                  {asset.symbol && (
-                    <Button 
-                      onClick={() => handleTechnicalAnalysis(asset)}
-                      disabled={!canAnalyze || loadingTechnical[asset.id_asset]}
-                      size="sm"
-                      variant={canAnalyze ? "secondary" : "outline"}
-                      className={`h-8 gap-2 px-3 ${!canAnalyze ? "bg-gray-100 text-gray-400" : ""}`}
-                    >
-                      {loadingTechnical[asset.id_asset] ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Calculator className="w-4 h-4" />
-                      )}
-                      {canAnalyze ? "Analyse" : `Dans ${formatRemainingCooldown(asset.RSI_SMA_updated_at)}`}
-                    </Button>
+                <CardHeader className="flex flex-row items-center justify-between px-4 py-3 pb-2 gap-2">
+                  {editingAssetId === asset.id_asset ? (
+                    <div className="flex w-full items-center gap-2">
+                      <Input
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        placeholder="Nom de l'actif"
+                        className="h-8"
+                      />
+                      <Input
+                        value={editSymbol}
+                        onChange={(e) => setEditSymbol(e.target.value)}
+                        placeholder="Ticker"
+                        className="h-8 w-28 font-mono uppercase"
+                      />
+                      <Button
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => handleSaveAsset(asset)}
+                        disabled={busyAssetId === asset.id_asset}
+                      >
+                        {busyAssetId === asset.id_asset ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 shrink-0"
+                        onClick={cancelEditAsset}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <CardTitle className={!asset.symbol ? "text-xl font-bold" : "text-lg"}>
+                          {asset.name_asset || asset.name}
+                        </CardTitle>
+                        {asset.symbol && (
+                          <CardDescription className="font-mono text-xs text-primary">
+                            {asset.symbol}
+                          </CardDescription>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {asset.id_user === user?.id && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => startEditAsset(asset)}
+                              title="Modifier"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => handleDeleteAsset(asset)}
+                              disabled={busyAssetId === asset.id_asset}
+                              title="Supprimer"
+                            >
+                              {busyAssetId === asset.id_asset
+                                ? <Loader2 className="w-4 h-4 animate-spin" />
+                                : <Trash2 className="w-4 h-4 text-destructive" />}
+                            </Button>
+                          </>
+                        )}
+                        {asset.symbol && (
+                          <Button 
+                            onClick={() => handleTechnicalAnalysis(asset)}
+                            disabled={!canAnalyze || loadingTechnical[asset.id_asset]}
+                            size="sm"
+                            variant={canAnalyze ? "secondary" : "outline"}
+                            className={`h-8 gap-2 px-3 ${!canAnalyze ? "bg-gray-100 text-gray-400" : ""}`}
+                          >
+                            {loadingTechnical[asset.id_asset] ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Calculator className="w-4 h-4" />
+                            )}
+                            {canAnalyze ? "Analyse" : `Dans ${formatRemainingCooldown(asset.RSI_SMA_updated_at)}`}
+                          </Button>
+                        )}
+                      </div>
+                    </>
                   )}
                 </CardHeader>
                 {asset.symbol && (
@@ -626,6 +818,40 @@ const AssetDetailPage = () => {
               </Card>
             );
           })}
+
+          <Card className="border border-dashed border-white/30 bg-white/10 shadow-none">
+            <CardContent className="pt-4 pb-4 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Plus className="w-4 h-4 text-primary" />
+                Ajouter un actif
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Input
+                  value={newAssetName}
+                  onChange={(e) => setNewAssetName(e.target.value)}
+                  placeholder="Nom de l'actif (ex : Bitcoin)"
+                  className="h-9"
+                />
+                <Input
+                  value={newAssetSymbol}
+                  onChange={(e) => setNewAssetSymbol(e.target.value)}
+                  placeholder="Ticker (ex : BTCUSD)"
+                  className="h-9 sm:w-44 font-mono uppercase"
+                />
+                <Button
+                  onClick={handleAddAsset}
+                  disabled={addingAsset}
+                  className="h-9 shrink-0 gap-2"
+                >
+                  {addingAsset ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  Ajouter
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                L'actif sera rattaché à cette allocation et à votre compte.
+              </p>
+            </CardContent>
+          </Card>
         </div>
 
         {affiliates.length > 0 && (

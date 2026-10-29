@@ -49,7 +49,7 @@ export type InvestmentOptions = {
 export type AssetDetail = {
   id_asset: number;
   id_invest: number;
-  name: string;
+  name?: string;
   name_asset?: string;
   symbol: string;
   market_cap: number;
@@ -57,6 +57,9 @@ export type AssetDetail = {
   SMA?: string;
   conclusion?: string;
   RSI_SMA_updated_at?: string;
+  market_index?: boolean | null;
+  percentage?: number | null;
+  id_user?: string | null;
 };
 
 export type Affiliate = {
