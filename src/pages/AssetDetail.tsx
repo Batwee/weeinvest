@@ -16,6 +16,7 @@ import {
   Gauge,
   TrendingUp as TrendUp,
   LogOut,
+  KeyRound,
   User
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -457,6 +458,9 @@ const AssetDetailPage = () => {
               <User className="w-3 h-3 text-primary" />
               <span className="font-semibold truncate max-w-[150px]">{user?.email}</span>
             </div>
+            <Button variant="ghost" size="icon" onClick={() => navigate("/api-key")} className="rounded-full bg-white/40 hover:bg-white/60 shadow-sm border border-white/20 h-9 w-9">
+              <KeyRound className="w-4 h-4 text-primary" />
+            </Button>
             <Button variant="ghost" size="icon" onClick={handleLogout} className="rounded-full bg-white/40 hover:bg-white/60 shadow-sm border border-white/20 h-9 w-9">
               <LogOut className="w-4 h-4 text-destructive" />
             </Button>

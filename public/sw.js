@@ -2,14 +2,17 @@ const CACHE_NAME = 'weeinvest-v1';
 const STATIC_CACHE = 'static-v1';
 const DYNAMIC_CACHE = 'dynamic-v1';
 
+// Base du déploiement (ex: '/weeinvest/'), déduite de l'URL du service worker
+const BASE = new URL('.', self.location.href).pathname;
+
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/favicon.ico',
-  '/icon-192x192.png',
-  '/icon-512x512.png',
-  '/logo.svg'
+  BASE,
+  `${BASE}index.html`,
+  `${BASE}manifest.json`,
+  `${BASE}favicon.ico`,
+  `${BASE}icon-192x192.png`,
+  `${BASE}icon-512x512.png`,
+  `${BASE}logo.svg`
 ];
 
 self.addEventListener('install', (event) => {
@@ -74,7 +77,7 @@ self.addEventListener('fetch', (event) => {
       }).catch(() => {
         // Return offline fallback for HTML requests
         if (request.headers.get('accept').includes('text/html')) {
-          return caches.match('/');
+          return caches.match(BASE);
         }
       });
     })
@@ -87,7 +90,7 @@ self.addEventListener('push', (event) => {
     const data = event.data.json();
     self.registration.showNotification(data.title, {
       body: data.message,
-      icon: '/icon-192x192.png'
+      icon: `${BASE}icon-192x192.png`
     });
   }
 });

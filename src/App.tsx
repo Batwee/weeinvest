@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import AssetDetail from "./pages/AssetDetail";
+import ApiKey from "./pages/ApiKey";
 import NotFound from "./pages/NotFound";
 import { useAuth } from "./hooks/useAuth";
 
@@ -36,7 +37,7 @@ const App = () => {
   useEffect(() => {
     if ("serviceWorker" in navigator && import.meta.env.PROD) {
       navigator.serviceWorker
-        .register("/sw.js")
+        .register(`${import.meta.env.BASE_URL}sw.js`)
         .catch((error) => {
           console.error("Service Worker registration failed:", error);
         });
@@ -64,6 +65,14 @@ const App = () => {
             element={
               <ProtectedRoute>
                 <AssetDetail />
+              </ProtectedRoute>
+            }
+          />
+            <Route
+            path="/api-key"
+            element={
+              <ProtectedRoute>
+                <ApiKey />
               </ProtectedRoute>
             }
           />
