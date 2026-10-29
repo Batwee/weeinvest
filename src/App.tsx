@@ -13,6 +13,9 @@ import { useAuth } from "./hooks/useAuth";
 
 const queryClient = new QueryClient();
 
+// Préfixe de déploiement : "/weeinvest" en production, "" en développement
+const basename = import.meta.env.BASE_URL.replace(/\/$/, "") || "/";
+
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
 
@@ -49,7 +52,7 @@ const App = () => {
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <BrowserRouter basename={basename}>
           <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route
