@@ -414,15 +414,35 @@ const AssetDetailPage = () => {
       const smaUrl = `https://www.alphavantage.co/query?function=SMA&symbol=${symbol}&interval=daily&time_period=5&series_type=open&apikey=${apiKey}`;
       const smaResponse = await fetch(smaUrl);
       const smaData = await smaResponse.json();
-      
+
+      // Alpha Vantage limite le tier gratuit à 1 requête/seconde : on patiente
+      // avant la seconde requête, sinon elle est rejetée.
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+
       // 3. Fetch RSI
       const rsiUrl = `https://www.alphavantage.co/query?function=RSI&symbol=${symbol}&interval=daily&time_period=3&series_type=open&apikey=${apiKey}`;
       const rsiResponse = await fetch(rsiUrl);
       const rsiData = await rsiResponse.json();
 
-      // Check for API errors or limit
-      if (smaData["Error Message"] || rsiData["Error Message"] || smaData["Note"] || rsiData["Note"]) {
-        console.error("Alpha Vantage API error or limit:", smaData || rsiData);
+      // 3bis. Détection du quota / de la limite de débit (clé "Information")
+      const limitMessage = smaData["Information"] || rsiData["Information"] || smaData["Note"] || rsiData["Note"];
+      if (limitMessage) {
+        console.error("Alpha Vantage quota/limit:", limitMessage);
+        toast({
+          variant: "destructive",
+          title: "Quota Alpha Vantage atteint",
+          description: "Limite gratuite : 25 requêtes par jour et 1 par seconde. Réessayez plus tard.",
+        });
+        return;
+      }
+
+      if (smaData["Error Message"] || rsiData["Error Message"]) {
+        console.error("Alpha Vantage API error:", smaData["Error Message"] || rsiData["Error Message"]);
+        toast({
+          variant: "destructive",
+          title: "Erreur Alpha Vantage",
+          description: smaData["Error Message"] || rsiData["Error Message"],
+        });
         return;
       }
 
@@ -493,6 +513,18 @@ const AssetDetailPage = () => {
         }
       } else {
         console.warn(`Aucune donnée SMA reçue pour ${symbol}:`, smaData);
+      }
+
+      // Rien d'exploitable : on n'écrase pas les valeurs existantes et on
+      // ne verrouille pas le cooldown de 24 h.
+      if (finalRSI === null && finalSMA === "Non calculé") {
+        console.error("Aucune donnée technique exploitable reçue pour", symbol);
+        toast({
+          variant: "destructive",
+          title: "Analyse indisponible",
+          description: "Aucune donnée reçue d'Alpha Vantage pour ce symbole.",
+        });
+        return;
       }
 
       const updates = {
