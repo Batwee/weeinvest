@@ -114,6 +114,11 @@ const TICKER_INVEST_IDS = [1, 2, 5];
 
 const supportsTicker = (idInvest?: number) => TICKER_INVEST_IDS.includes(Number(idInvest));
 
+// Actifs visibles dans la liste : ceux de base (id_user NULL) et ceux de
+// l'utilisateur connecté. Les actifs créés par d'autres comptes sont exclus.
+const filterVisibleAssets = (list: AssetDetailType[], userId?: string) =>
+  list.filter((asset) => !asset.id_user || asset.id_user === userId);
+
 const AssetDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -303,7 +308,7 @@ const AssetDetailPage = () => {
             await subscribeToPush(user.id);
             toast({
               title: "Alertes RSI activées",
-              description: "Une notification sera envoyée au franchissement des seuils 35 / 70.",
+              description: "Une notification sera envoyée au franchissement des seuils 40 / 65.",
             });
           } else {
             // Refus : alerte conservée à true, l'utilisateur pourra réactiver plus tard
@@ -345,7 +350,7 @@ const AssetDetailPage = () => {
 
       if (cachedData && cachedData.date === today && !needsIndexRefresh(cachedData.investment)) {
         setInvestment(cachedData.investment);
-        setAssets(cachedData.assets);
+        setAssets(filterVisibleAssets(cachedData.assets, user?.id));
         setAffiliates(cachedData.affiliates);
         setLoading(false);
         return;
@@ -461,7 +466,7 @@ const AssetDetailPage = () => {
           .eq('id_invest', id);
         
         const sortedAssets = assetsData
-          ? [...assetsData].sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0))
+          ? [...filterVisibleAssets(assetsData, user?.id)].sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0))
           : [];
 
         setAssets(sortedAssets);
@@ -488,7 +493,7 @@ const AssetDetailPage = () => {
     };
 
     fetchAssetData();
-  }, [id]);
+  }, [id, user?.id]);
 
   const handleTechnicalAnalysis = async (asset: AssetDetailType) => {
     if (isAnalysisLocked(asset.RSI_SMA_updated_at)) {
@@ -571,9 +576,9 @@ const AssetDetailPage = () => {
           if (!isNaN(rsiAverage)) {
               finalRSI = parseFloat(rsiAverage.toFixed(2));
               
-              if (finalRSI < 35) {
+              if (finalRSI < 40) {
                 finalConclusion = "Achat fort conseillé";
-              } else if (finalRSI > 70) {
+              } else if (finalRSI > 65) {
                 finalConclusion = "Vente conseillée";
               } else {
                 finalConclusion = "Marché neutre";
@@ -929,8 +934,8 @@ const AssetDetailPage = () => {
                           <span className="font-bold">
                             {asset.RSI !== null && asset.RSI !== undefined ? asset.RSI : "—"}
                           </span>
-                          {asset.RSI !== null && asset.RSI !== undefined && asset.RSI < 35 && <TrendingUp className="w-4 h-4 text-green-500" />}
-                          {asset.RSI !== null && asset.RSI !== undefined && asset.RSI > 70 && <TrendingDown className="w-4 h-4 text-red-500" />}
+                          {asset.RSI !== null && asset.RSI !== undefined && asset.RSI < 40 && <TrendingUp className="w-4 h-4 text-green-500" />}
+                          {asset.RSI !== null && asset.RSI !== undefined && asset.RSI > 65 && <TrendingDown className="w-4 h-4 text-red-500" />}
                         </div>
                         <div className="flex items-center gap-2 text-sm">
                           <span className="text-xs text-muted-foreground font-semibold">SMA :</span>
@@ -960,7 +965,7 @@ const AssetDetailPage = () => {
                             <BellOff className="w-4 h-4 text-muted-foreground shrink-0" />
                           )}
                           <span className="text-xs text-muted-foreground truncate">
-                            Alertes RSI Weekly (seuils 35 / 70)
+                            Alertes RSI Weekly (seuils 40 / 65)
                           </span>
                         </div>
                         <Button

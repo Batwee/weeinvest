@@ -15,17 +15,19 @@ create extension if not exists pg_net;
 -- Supprime l'ancienne planification si elle existe (relance sans erreur)
 select cron.unschedule(jobid) from cron.job where jobname = 'rsi-alerts-daily';
 
--- Tous les jours à 07:00 UTC (09:00 heure de Paris en été).
+-- Tous les jours à 18:00 heure de Paris, toute l'année (gère été/hiver).
+-- pg_cron ne connaît que UTC : on déclenche donc un contrôle toutes les
+-- heures, et la requête ne part que si l'heure locale parisienne vaut 18.
 -- Le dollar-quote est nommé ($cron$) pour éviter tout conflit de parsing.
 select cron.schedule(
   'rsi-alerts-daily',
-  '0 7 * * *',
+  '0 * * * *',
   $cron$select net.http_post(
     url := 'https://rgodejjtasgluerbzfvr.supabase.co/functions/v1/rsi-alerts',
     headers := jsonb_build_object('Content-Type','application/json','x-cron-secret','<CRON_SECRET>'),
     body := '{}'::jsonb,
     timeout_milliseconds := 300000
-  );$cron$
+  ) where extract(hour from (now() at time zone 'Europe/Paris')) = 18;$cron$
 );
 
 -- Vérification / suivi :

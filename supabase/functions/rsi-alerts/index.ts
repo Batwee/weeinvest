@@ -9,8 +9,9 @@
 //      Alpha Vantage du propriétaire, en respectant 1,2 s entre chaque appel.
 //   4. Mettre à jour RSI / SMA / conclusion / RSI_SMA_updated_at (colonnes
 //      existantes, aucune duplication).
-//   5. Détecter le franchissement des seuils 35 / 70, écrire l'historique et
+//   5. Détecter le franchissement des seuils 40 / 65, écrire l'historique et
 //      envoyer une notification Push uniquement au premier franchissement.
+//      (seuils identiques à ceux utilisés côté front dans AssetDetail.tsx)
 //
 // Secrets à définir (Edge Functions -> Secrets) :
 //   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, CRON_SECRET
@@ -24,8 +25,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import webpush from "npm:web-push@3.6.7";
 
-const OVERSOLD_THRESHOLD = 35;
-const OVERBOUGHT_THRESHOLD = 70;
+const OVERSOLD_THRESHOLD = 40;
+const OVERBOUGHT_THRESHOLD = 65;
 const REFRESH_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MIN_REQUEST_INTERVAL_MS = 1200; // Alpha Vantage free tier : 1 req/s
 const MAX_REQUESTS_PER_KEY = 24; // garde une marge sur la limite de 25/jour
@@ -335,11 +336,11 @@ Deno.serve(async (req) => {
           }
 
           const title = signal === "oversold"
-            ? `${assetName} — Survente`
-            : `${assetName} — Surachat`;
+            ? `${assetName} — Survente (RSI ${technicals.rsi})`
+            : `${assetName} — Surachat (RSI ${technicals.rsi})`;
           const message = signal === "oversold"
-            ? `RSI Weekly ${technicals.rsi} (< ${OVERSOLD_THRESHOLD}) : signal d'achat potentiel.`
-            : `RSI Weekly ${technicals.rsi} (> ${OVERBOUGHT_THRESHOLD}) : signal de vente potentiel.`;
+            ? `RSI Weekly ${technicals.rsi} : seuil de survente franchi (inférieur à ${OVERSOLD_THRESHOLD}). Signal d'achat potentiel.`
+            : `RSI Weekly ${technicals.rsi} : seuil de surachat franchi (supérieur à ${OVERBOUGHT_THRESHOLD}). Signal de vente potentiel.`;
 
           const payload = JSON.stringify({
             title,
