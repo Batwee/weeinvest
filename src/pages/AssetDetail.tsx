@@ -326,10 +326,10 @@ const AssetDetailPage = () => {
                   }
                 }
               } catch (apiError) {
-                console.error("Failed to fetch real FNG index:", apiError);
-                // Fallback to random if all fails
-                updates.fear_and_greed = Math.floor(20 + Math.random() * 60);
-                updates.fng_updated_at = new Date().toISOString();
+                // Échec du fetch (CORS, réseau, quota) : on ne touche pas à
+                // fng_updated_at pour ne pas verrouiller le cooldown sur une
+                // valeur fausse. La dernière valeur connue est conservée.
+                console.warn("Fear & Greed indisponible, dernière valeur conservée:", apiError);
               }
             }
 
