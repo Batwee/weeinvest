@@ -19,7 +19,7 @@ export const UserBadge = ({ compact = true }: UserBadgeProps) => {
   return (
     <div
       className={cn(
-        "hidden sm:flex items-center gap-2 bg-white/40 backdrop-blur-md rounded-full shadow-sm border border-white/20",
+        "flex items-center gap-2 bg-white/40 backdrop-blur-md rounded-full shadow-sm border border-white/20",
         compact ? "px-3 py-1 text-[10px]" : "px-4 py-2 text-xs"
       )}
     >
