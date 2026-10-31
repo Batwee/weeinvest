@@ -7,7 +7,7 @@ import { useEffect } from "react";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import AssetDetail from "./pages/AssetDetail";
-import ApiKey from "./pages/ApiKey";
+import Account from "./pages/Account";
 import NotFound from "./pages/NotFound";
 import { useAuth } from "./hooks/useAuth";
 
@@ -72,13 +72,15 @@ const App = () => {
             }
           />
             <Route
-            path="/api-key"
+            path="/compte"
             element={
               <ProtectedRoute>
-                <ApiKey />
+                <Account />
               </ProtectedRoute>
             }
           />
+          {/* Ancienne route : conservée en redirection pour les liens existants */}
+          <Route path="/api-key" element={<Navigate to="/compte" replace />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

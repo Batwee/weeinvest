@@ -17,8 +17,6 @@ import {
   AlertCircle,
   Gauge,
   TrendingUp as TrendUp,
-  LogOut,
-  KeyRound,
   Plus,
   Pencil,
   Trash2,
@@ -34,11 +32,11 @@ import {
   isPushSupported,
   requestNotificationPermission,
   subscribeToPush,
-  unsubscribeFromPush,
 } from "@/lib/push";
 
 type AssetDetailCache = {
   date: string;
+  cachedAt?: string;
   investment: InvestmentOptions | null;
   assets: AssetDetailType[];
   affiliates: Affiliate[];
@@ -48,6 +46,25 @@ const getTodayDate = () => new Date().toISOString().split("T")[0];
 
 const getAssetDetailCacheKey = (id: string) => `asset-detail-cache-${id}`;
 const ANALYSIS_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+// Le cache d'affichage (liste d'actifs, affiliés) est rechargé depuis la base
+// toutes les 3 h au lieu de 24 h : lecture BD uniquement, sans impact sur le
+// quota Alpha Vantage (RSI/SMA et indices restent actualisés au plus une fois
+// par jour, indépendamment de ce délai).
+const CACHE_FRESHNESS_MS = 3 * 60 * 60 * 1000;
+
+const isCacheFresh = (cache: AssetDetailCache | null) => {
+  if (!cache) return false;
+
+  if (cache.cachedAt) {
+    const cachedTime = new Date(cache.cachedAt).getTime();
+    if (!Number.isNaN(cachedTime)) {
+      return Date.now() - cachedTime < CACHE_FRESHNESS_MS;
+    }
+  }
+
+  // Ancien format de cache (sans horodatage) : on retombe sur la date du jour.
+  return cache.date === getTodayDate();
+};
 
 const readAssetDetailCache = (id: string): AssetDetailCache | null => {
   if (typeof window === "undefined") return null;
@@ -142,16 +159,6 @@ const AssetDetailPage = () => {
   const [busyAssetId, setBusyAssetId] = useState<number | null>(null);
   const [busyAlertId, setBusyAlertId] = useState<number | null>(null);
 
-  const handleLogout = async () => {
-    // Supprime l'abonnement Push de cet appareil avant de quitter la session
-    try {
-      await unsubscribeFromPush();
-    } catch (error) {
-      console.error("Échec de la désinscription Push:", error);
-    }
-    await supabase.auth.signOut();
-  };
-
   const updateCache = (
     nextInvestment: InvestmentOptions | null = investment,
     nextAssets: AssetDetailType[] = assets,
@@ -161,6 +168,7 @@ const AssetDetailPage = () => {
 
     writeAssetDetailCache(id, {
       date: getTodayDate(),
+      cachedAt: new Date().toISOString(),
       investment: nextInvestment,
       assets: nextAssets,
       affiliates: nextAffiliates,
@@ -352,7 +360,7 @@ const AssetDetailPage = () => {
       const today = getTodayDate();
       const cachedData = readAssetDetailCache(id);
 
-      if (cachedData && cachedData.date === today && !needsIndexRefresh(cachedData.investment)) {
+      if (isCacheFresh(cachedData) && !needsIndexRefresh(cachedData?.investment)) {
         setInvestment(cachedData.investment);
         setAssets(filterVisibleAssets(cachedData.assets, user?.id));
         setAffiliates(cachedData.affiliates);
@@ -485,6 +493,7 @@ const AssetDetailPage = () => {
         setAffiliates(nextAffiliates);
         writeAssetDetailCache(id, {
           date: today,
+          cachedAt: new Date().toISOString(),
           investment: finalInvestment,
           assets: sortedAssets,
           affiliates: nextAffiliates,
@@ -524,7 +533,7 @@ const AssetDetailPage = () => {
           title: "Clé API requise",
           description: "Ajoutez votre clé Alpha Vantage pour lancer l'analyse technique.",
         });
-        navigate("/api-key");
+        navigate("/compte");
         return;
       }
 
@@ -733,15 +742,7 @@ const AssetDetailPage = () => {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Retour
           </Button>
-          <div className="flex items-center gap-3">
-            <UserBadge compact={false} />
-            <Button variant="ghost" size="icon" onClick={() => navigate("/api-key")} className="rounded-full bg-white/40 hover:bg-white/60 shadow-sm border border-white/20 h-9 w-9">
-              <KeyRound className="w-4 h-4 text-primary" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={handleLogout} className="rounded-full bg-white/40 hover:bg-white/60 shadow-sm border border-white/20 h-9 w-9">
-              <LogOut className="w-4 h-4 text-destructive" />
-            </Button>
-          </div>
+          <UserBadge compact={false} />
         </header>
 
         <header className="space-y-3">

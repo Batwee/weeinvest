@@ -1,5 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { User } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
@@ -7,7 +8,10 @@ type UserBadgeProps = {
   compact?: boolean;
 };
 
+// Point d'entrée unique vers la page « Mon compte » : la pastille de profil
+// remplace les icônes clé API / déconnexion auparavant affichées dans les headers.
 export const UserBadge = ({ compact = true }: UserBadgeProps) => {
+  const navigate = useNavigate();
   const { user } = useAuth();
 
   const metadata = user?.user_metadata ?? {};
@@ -18,9 +22,12 @@ export const UserBadge = ({ compact = true }: UserBadgeProps) => {
   const displayName = metadata.full_name || metadata.name || emailPrefix;
 
   return (
-    <div
+    <button
+      type="button"
+      onClick={() => navigate("/compte")}
+      title="Mon compte"
       className={cn(
-        "flex items-center gap-2 bg-white/40 backdrop-blur-md rounded-full shadow-sm border border-white/20",
+        "flex items-center gap-2 bg-white/40 backdrop-blur-md rounded-full shadow-sm border border-white/20 transition-colors hover:bg-white/70 cursor-pointer",
         compact ? "px-3 py-1 text-[10px]" : "px-4 py-2 text-xs"
       )}
     >
@@ -37,6 +44,6 @@ export const UserBadge = ({ compact = true }: UserBadgeProps) => {
       <span className={cn("font-semibold truncate", compact ? "max-w-[120px]" : "max-w-[150px]")}>
         {displayName}
       </span>
-    </div>
+    </button>
   );
 };

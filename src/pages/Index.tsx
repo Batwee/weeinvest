@@ -1,6 +1,5 @@
 
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { RiskSlider } from "@/components/RiskSlider";
 import { InvestmentInput } from "@/components/InvestmentInput";
 import { AllocationChart } from "@/components/AllocationChart";
@@ -11,18 +10,15 @@ import {
   Gauge, 
   TrendingUp, 
   AlertTriangle, 
-  LogOut, 
   BarChart3, 
   TrendingUp as TrendUp, 
   ChevronDown, 
   ChevronUp,
-  Settings2,
-  KeyRound
+  Settings2
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/lib/supabase";
 import { useToast } from "@/components/ui/use-toast";
 
 const Index = () => {
@@ -31,11 +27,6 @@ const Index = () => {
   const [isParamsExpanded, setIsParamsExpanded] = useState(false);
   const { investments } = useInvestments(riskLevel);
   const { toast } = useToast();
-  const navigate = useNavigate();
-  
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-  };
 
   useEffect(() => {
     if (riskLevel === 5) {
@@ -57,12 +48,6 @@ const Index = () => {
           </h1>
           <div className="flex items-center gap-3">
             <UserBadge />
-            <Button variant="ghost" size="icon" onClick={() => navigate("/api-key")} className="rounded-full bg-white/40 hover:bg-white/60 shadow-sm border border-white/20 h-7 w-7">
-              <KeyRound className="w-3.5 h-3.5 text-primary" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={handleLogout} className="rounded-full bg-white/40 hover:bg-white/60 shadow-sm border border-white/20 h-7 w-7">
-              <LogOut className="w-3.5 h-3.5 text-destructive" />
-            </Button>
           </div>
         </header>
 
