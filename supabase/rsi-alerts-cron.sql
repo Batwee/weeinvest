@@ -13,27 +13,19 @@ create extension if not exists pg_cron;
 create extension if not exists pg_net;
 
 -- Supprime l'ancienne planification si elle existe (relance sans erreur)
-do $$
-begin
-  perform cron.unschedule('rsi-alerts-daily');
-exception when others then null;
-end $$;
+select cron.unschedule(jobid) from cron.job where jobname = 'rsi-alerts-daily';
 
--- Tous les jours à 07:00 UTC (09:00 heure de Paris en été)
+-- Tous les jours à 07:00 UTC (09:00 heure de Paris en été).
+-- Le dollar-quote est nommé ($cron$) pour éviter tout conflit de parsing.
 select cron.schedule(
   'rsi-alerts-daily',
   '0 7 * * *',
-  $$
-  select net.http_post(
+  $cron$select net.http_post(
     url := 'https://rgodejjtasgluerbzfvr.supabase.co/functions/v1/rsi-alerts',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'x-cron-secret', '<CRON_SECRET>'
-    ),
+    headers := jsonb_build_object('Content-Type','application/json','x-cron-secret','<CRON_SECRET>'),
     body := '{}'::jsonb,
     timeout_milliseconds := 300000
-  );
-  $$
+  );$cron$
 );
 
 -- Vérification / suivi :
