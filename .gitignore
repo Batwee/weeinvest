@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Supabase CLI (cache local, contient le ref du projet lié)
+supabase/.temp
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
