@@ -82,6 +82,24 @@ const formatRemainingCooldown = (updatedAt?: string) => {
   return `${totalHours} h`;
 };
 
+// Un indice dont la date n'est pas celle du jour doit être retenté.
+// Sans ce test, le cache local masquait un échec d'actualisation pendant 24 h.
+const needsIndexRefresh = (investment?: InvestmentOptions | null) => {
+  if (!investment) return false;
+
+  const today = getTodayDate();
+
+  const fngStale =
+    investment.fear_and_greed != null &&
+    (!investment.fng_updated_at || !investment.fng_updated_at.startsWith(today));
+
+  const altcoinStale =
+    investment.altcoin_index != null &&
+    (!investment.altcoin_index_updated_at || !investment.altcoin_index_updated_at.startsWith(today));
+
+  return fngStale || altcoinStale;
+};
+
 // Catégories d'investissement autorisant l'ajout d'un ticker (voir table investment_options)
 // id_invest : 1 = Crypto, 2 = Bourse, 5 = Métaux Précieux
 const TICKER_INVEST_IDS = [1, 2, 5];
@@ -248,7 +266,7 @@ const AssetDetailPage = () => {
       const today = getTodayDate();
       const cachedData = readAssetDetailCache(id);
 
-      if (cachedData && cachedData.date === today) {
+      if (cachedData && cachedData.date === today && !needsIndexRefresh(cachedData.investment)) {
         setInvestment(cachedData.investment);
         setAssets(cachedData.assets);
         setAffiliates(cachedData.affiliates);
@@ -662,7 +680,7 @@ const AssetDetailPage = () => {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <Gauge className="w-5 h-5 text-orange-500" />
-                      <span className="font-bold text-sm">Fear & Greed Index</span>
+                      <span className="font-bold text-sm">Fear &amp; Greed {investment.name_invest} Index</span>
                     </div>
                     <div className="flex flex-col items-end">
                       <span className="text-2xl font-black text-orange-600">
