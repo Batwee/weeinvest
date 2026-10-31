@@ -547,7 +547,7 @@ const AssetDetailPage = () => {
       await new Promise((resolve) => setTimeout(resolve, 1200));
 
       // 3. Fetch RSI (weekly également)
-      const rsiUrl = `https://www.alphavantage.co/query?function=RSI&symbol=${symbol}&interval=weekly&time_period=3&series_type=open&apikey=${apiKey}`;
+      const rsiUrl = `https://www.alphavantage.co/query?function=RSI&symbol=${symbol}&interval=weekly&time_period=10&series_type=open&apikey=${apiKey}`;
       const rsiResponse = await fetch(rsiUrl);
       const rsiData = await rsiResponse.json();
 
@@ -577,17 +577,18 @@ const AssetDetailPage = () => {
       let finalSMA = "Non calculé";
       let finalConclusion = "En attente d'analyse";
 
-      // Traitement des données RSI avec moyenne sur 3 jours
+      // RSI : on retient la dernière valeur hebdomadaire publiée (période 10),
+      // identique à l'appel API de référence, sans moyenne sur plusieurs semaines.
       if (rsiData['Technical Analysis: RSI']) {
         const rsiEntries = rsiData['Technical Analysis: RSI'];
-        const dates = Object.keys(rsiEntries).slice(0, 3);
-        
-        if (dates.length > 0) {
-          const rsiValues = dates.map(date => Number(rsiEntries[date].RSI));
-          const rsiAverage = rsiValues.reduce((a, b) => a + b, 0) / rsiValues.length;
-          
-          if (!isNaN(rsiAverage)) {
-              finalRSI = parseFloat(rsiAverage.toFixed(2));
+        // Alpha Vantage renvoie les dates de la plus récente à la plus ancienne.
+        const latestDate = Object.keys(rsiEntries)[0];
+
+        if (latestDate) {
+          const latestRSI = Number(rsiEntries[latestDate].RSI);
+
+          if (!isNaN(latestRSI)) {
+              finalRSI = parseFloat(latestRSI.toFixed(2));
               
               if (finalRSI < 40) {
                 finalConclusion = "Achat fort conseillé";

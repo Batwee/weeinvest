@@ -69,12 +69,13 @@ const computeTechnicals = (smaData: any, rsiData: any): Technicals => {
 
   if (rsiData?.["Technical Analysis: RSI"]) {
     const entries = rsiData["Technical Analysis: RSI"];
-    const dates = Object.keys(entries).slice(0, 3);
-    if (dates.length > 0) {
-      const values = dates.map((date) => Number(entries[date].RSI));
-      const average = values.reduce((a, b) => a + b, 0) / values.length;
-      if (!Number.isNaN(average)) {
-        rsi = parseFloat(average.toFixed(2));
+    // Alpha Vantage renvoie les dates de la plus récente à la plus ancienne :
+    // on retient la dernière valeur publiée, comme l'appel API de référence.
+    const latestDate = Object.keys(entries)[0];
+    if (latestDate) {
+      const latest = Number(entries[latestDate].RSI);
+      if (!Number.isNaN(latest)) {
+        rsi = parseFloat(latest.toFixed(2));
         conclusion = rsi < OVERSOLD_THRESHOLD
           ? "Achat fort conseillé"
           : rsi > OVERBOUGHT_THRESHOLD
@@ -253,7 +254,7 @@ Deno.serve(async (req) => {
           }
 
           const smaUrl = `https://www.alphavantage.co/query?function=SMA&symbol=${symbol}&interval=weekly&time_period=5&series_type=open&apikey=${apiKey}`;
-          const rsiUrl = `https://www.alphavantage.co/query?function=RSI&symbol=${symbol}&interval=weekly&time_period=3&series_type=open&apikey=${apiKey}`;
+          const rsiUrl = `https://www.alphavantage.co/query?function=RSI&symbol=${symbol}&interval=weekly&time_period=10&series_type=open&apikey=${apiKey}`;
 
           const smaData = await alphaFetch(smaUrl);
           const rsiData = await alphaFetch(rsiUrl);
