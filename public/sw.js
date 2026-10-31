@@ -101,13 +101,43 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Handle push notifications (optional for future use)
+// Notifications Push (alertes RSI)
 self.addEventListener('push', (event) => {
-  if (event.data) {
-    const data = event.data.json();
-    self.registration.showNotification(data.title, {
-      body: data.message,
-      icon: `${BASE}icon-192x192.png`
-    });
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { title: 'WeeInvest', message: event.data ? event.data.text() : '' };
   }
+
+  const title = data.title || 'WeeInvest';
+  const options = {
+    body: data.message || data.body || '',
+    icon: `${BASE}icon-192x192.png`,
+    badge: `${BASE}icon-192x192.png`,
+    tag: data.tag || undefined,
+    data: { url: data.url || '' }
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Clic sur une notification : ouvre (ou refocalise) l'application
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  const targetPath = (event.notification.data && event.notification.data.url) || '';
+  const targetUrl = new URL(`${BASE}${targetPath}`.replace(/\/+/g, '/'), self.location.origin).href;
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.url.startsWith(self.location.origin) && 'focus' in client) {
+          client.navigate(targetUrl);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(targetUrl);
+    })
+  );
 });

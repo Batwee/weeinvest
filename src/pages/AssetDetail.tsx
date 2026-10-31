@@ -23,11 +23,19 @@ import {
   Pencil,
   Trash2,
   Check,
-  X
+  X,
+  Bell,
+  BellOff
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { UserBadge } from "@/components/UserBadge";
 import { useAuth } from "@/hooks/useAuth";
+import {
+  isPushSupported,
+  requestNotificationPermission,
+  subscribeToPush,
+  unsubscribeFromPush,
+} from "@/lib/push";
 
 type AssetDetailCache = {
   date: string;
@@ -123,8 +131,15 @@ const AssetDetailPage = () => {
   const [editName, setEditName] = useState("");
   const [editSymbol, setEditSymbol] = useState("");
   const [busyAssetId, setBusyAssetId] = useState<number | null>(null);
+  const [busyAlertId, setBusyAlertId] = useState<number | null>(null);
 
   const handleLogout = async () => {
+    // Supprime l'abonnement Push de cet appareil avant de quitter la session
+    try {
+      await unsubscribeFromPush();
+    } catch (error) {
+      console.error("Échec de la désinscription Push:", error);
+    }
     await supabase.auth.signOut();
   };
 
@@ -255,6 +270,68 @@ const AssetDetailPage = () => {
       });
     } finally {
       setBusyAssetId(null);
+    }
+  };
+
+  // Bascule des alertes RSI. asset_details.alerte reste la source de vérité :
+  // le bouton reflète toujours la valeur enregistrée en base.
+  const handleToggleAlerts = async (asset: AssetDetailType) => {
+    if (!user) return;
+
+    const nextValue = !asset.alerte;
+    setBusyAlertId(asset.id_asset);
+
+    try {
+      const { error } = await supabase
+        .from("asset_details")
+        .update({ alerte: nextValue })
+        .eq("id_asset", asset.id_asset);
+
+      if (error) throw error;
+
+      if (nextValue) {
+        if (!isPushSupported()) {
+          toast({
+            variant: "destructive",
+            title: "Notifications non supportées",
+            description: "Ce navigateur ne gère pas les notifications Push. Les alertes restent activées en base.",
+          });
+        } else {
+          const permission = await requestNotificationPermission();
+
+          if (permission === "granted") {
+            await subscribeToPush(user.id);
+            toast({
+              title: "Alertes RSI activées",
+              description: "Une notification sera envoyée au franchissement des seuils 35 / 70.",
+            });
+          } else {
+            // Refus : alerte conservée à true, l'utilisateur pourra réactiver plus tard
+            toast({
+              variant: "destructive",
+              title: "Notifications refusées",
+              description: "Alertes enregistrées, mais aucune notification ne sera envoyée. Autorisez les notifications dans les réglages du navigateur.",
+            });
+          }
+        }
+      } else {
+        toast({ title: "Alertes RSI désactivées", duration: 2000 });
+      }
+
+      const nextAssets = assets.map((a) =>
+        a.id_asset === asset.id_asset ? { ...a, alerte: nextValue } : a
+      );
+      setAssets(nextAssets);
+      updateCache(investment, nextAssets, affiliates);
+    } catch (err) {
+      console.error("Failed to toggle RSI alerts:", err);
+      toast({
+        variant: "destructive",
+        title: "Action impossible",
+        description: err instanceof Error ? err.message : "Une erreur est survenue.",
+      });
+    } finally {
+      setBusyAlertId(null);
     }
   };
 
@@ -442,8 +519,8 @@ const AssetDetailPage = () => {
         return;
       }
 
-      // 2. Fetch SMA
-      const smaUrl = `https://www.alphavantage.co/query?function=SMA&symbol=${symbol}&interval=daily&time_period=5&series_type=open&apikey=${apiKey}`;
+      // 2. Fetch SMA (intervalle weekly : aucune donnée daily dans l'app)
+      const smaUrl = `https://www.alphavantage.co/query?function=SMA&symbol=${symbol}&interval=weekly&time_period=5&series_type=open&apikey=${apiKey}`;
       const smaResponse = await fetch(smaUrl);
       const smaData = await smaResponse.json();
 
@@ -451,8 +528,8 @@ const AssetDetailPage = () => {
       // avant la seconde requête, sinon elle est rejetée.
       await new Promise((resolve) => setTimeout(resolve, 1200));
 
-      // 3. Fetch RSI
-      const rsiUrl = `https://www.alphavantage.co/query?function=RSI&symbol=${symbol}&interval=daily&time_period=3&series_type=open&apikey=${apiKey}`;
+      // 3. Fetch RSI (weekly également)
+      const rsiUrl = `https://www.alphavantage.co/query?function=RSI&symbol=${symbol}&interval=weekly&time_period=3&series_type=open&apikey=${apiKey}`;
       const rsiResponse = await fetch(rsiUrl);
       const rsiData = await rsiResponse.json();
 
@@ -873,6 +950,35 @@ const AssetDetailPage = () => {
                       <p className="text-[10px] text-muted-foreground">
                         Dernière analyse le {new Date(asset.RSI_SMA_updated_at).toLocaleString()}
                       </p>
+                    )}
+                    {asset.id_user === user?.id && (
+                      <div className="flex items-center justify-between gap-2 pt-2 mt-1 border-t border-white/10">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {asset.alerte ? (
+                            <Bell className="w-4 h-4 text-primary shrink-0" />
+                          ) : (
+                            <BellOff className="w-4 h-4 text-muted-foreground shrink-0" />
+                          )}
+                          <span className="text-xs text-muted-foreground truncate">
+                            Alertes RSI Weekly (seuils 35 / 70)
+                          </span>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant={asset.alerte ? "outline" : "secondary"}
+                          className="h-7 px-3 text-xs shrink-0"
+                          onClick={() => handleToggleAlerts(asset)}
+                          disabled={busyAlertId === asset.id_asset}
+                        >
+                          {busyAlertId === asset.id_asset ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : asset.alerte ? (
+                            "Désactiver"
+                          ) : (
+                            "Activer"
+                          )}
+                        </Button>
+                      </div>
                     )}
                   </CardContent>
                 )}

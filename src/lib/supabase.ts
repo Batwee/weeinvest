@@ -57,6 +57,8 @@ export type AssetDetail = {
   SMA?: string;
   conclusion?: string;
   RSI_SMA_updated_at?: string;
+  alerte?: boolean;
+  alert_state?: string | null;
   market_index?: boolean | null;
   percentage?: number | null;
   id_user?: string | null;
