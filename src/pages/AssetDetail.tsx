@@ -766,7 +766,7 @@ const AssetDetailPage = () => {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <Gauge className="w-5 h-5 text-orange-500" />
-                      <span className="font-bold text-sm">Fear &amp; Greed {investment.name_invest} Index</span>
+                      <span className="font-bold text-sm">{investment.name_invest} Fear &amp; Greed Index</span>
                     </div>
                     <div className="flex flex-col items-end">
                       <span className="text-2xl font-black text-orange-600">
@@ -795,9 +795,14 @@ const AssetDetailPage = () => {
                       style={{ width: `${investment.fear_and_greed}%` }}
                     />
                   </div>
-                  <p className="text-[10px] text-muted-foreground mt-1 text-right">
-                    Mis à jour le {investment.fng_updated_at ? new Date(investment.fng_updated_at).toLocaleDateString() : 'N/A'}
-                  </p>
+                  <div className="flex items-center justify-between gap-2 mt-1">
+                    <span className="text-[10px] text-muted-foreground truncate">
+                      {investment.fng_name ?? ""}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">
+                      Mis à jour le {investment.fng_updated_at ? new Date(investment.fng_updated_at).toLocaleDateString() : 'N/A'}
+                    </span>
+                  </div>
                 </CardContent>
               </Card>
             )}

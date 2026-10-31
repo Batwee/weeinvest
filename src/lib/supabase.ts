@@ -44,6 +44,7 @@ export type InvestmentOptions = {
   altcoin_index_updated_at?: string;
   lien_fng?: string;
   json_path?: string;
+  fng_name?: string;
 };
 
 export type AssetDetail = {
