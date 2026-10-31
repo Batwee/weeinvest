@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { UserBadge } from "@/components/UserBadge";
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
@@ -15,7 +16,6 @@ import {
   KeyRound,
   Loader2,
   LogOut,
-  User,
 } from "lucide-react";
 
 const API_NAME = "alphavantage";
@@ -123,10 +123,7 @@ const ApiKeyPage = () => {
             Retour
           </Button>
           <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-white/40 backdrop-blur-md rounded-full shadow-sm text-[10px] border border-white/20">
-              <User className="w-2.5 h-2.5 text-primary" />
-              <span className="font-semibold truncate max-w-[120px]">{user?.email}</span>
-            </div>
+            <UserBadge />
             <Button
               variant="ghost"
               size="icon"

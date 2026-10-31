@@ -5,13 +5,13 @@ import { RiskSlider } from "@/components/RiskSlider";
 import { InvestmentInput } from "@/components/InvestmentInput";
 import { AllocationChart } from "@/components/AllocationChart";
 import { AllocationSummary } from "@/components/AllocationSummary";
+import { UserBadge } from "@/components/UserBadge";
 import { useInvestments } from "@/hooks/useInvestments";
 import { 
   Gauge, 
   TrendingUp, 
   AlertTriangle, 
   LogOut, 
-  User, 
   BarChart3, 
   TrendingUp as TrendUp, 
   ChevronDown, 
@@ -23,7 +23,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/components/ui/use-toast";
 
 const Index = () => {
@@ -31,7 +30,6 @@ const Index = () => {
   const [amount, setAmount] = useState(10000);
   const [isParamsExpanded, setIsParamsExpanded] = useState(false);
   const { investments } = useInvestments(riskLevel);
-  const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   
@@ -58,10 +56,7 @@ const Index = () => {
             WeeInvest
           </h1>
           <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-white/40 backdrop-blur-md rounded-full shadow-sm text-[10px] border border-white/20">
-              <User className="w-2.5 h-2.5 text-primary" />
-              <span className="font-semibold truncate max-w-[120px]">{user?.email}</span>
-            </div>
+            <UserBadge />
             <Button variant="ghost" size="icon" onClick={() => navigate("/api-key")} className="rounded-full bg-white/40 hover:bg-white/60 shadow-sm border border-white/20 h-7 w-7">
               <KeyRound className="w-3.5 h-3.5 text-primary" />
             </Button>

@@ -19,7 +19,6 @@ import {
   TrendingUp as TrendUp,
   LogOut,
   KeyRound,
-  User,
   Plus,
   Pencil,
   Trash2,
@@ -27,6 +26,7 @@ import {
   X
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { UserBadge } from "@/components/UserBadge";
 import { useAuth } from "@/hooks/useAuth";
 
 type AssetDetailCache = {
@@ -616,10 +616,7 @@ const AssetDetailPage = () => {
             Retour
           </Button>
           <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-white/40 backdrop-blur-md rounded-full shadow-sm text-xs border border-white/20">
-              <User className="w-3 h-3 text-primary" />
-              <span className="font-semibold truncate max-w-[150px]">{user?.email}</span>
-            </div>
+            <UserBadge compact={false} />
             <Button variant="ghost" size="icon" onClick={() => navigate("/api-key")} className="rounded-full bg-white/40 hover:bg-white/60 shadow-sm border border-white/20 h-9 w-9">
               <KeyRound className="w-4 h-4 text-primary" />
             </Button>
