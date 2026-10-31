@@ -12,9 +12,10 @@ export const UserBadge = ({ compact = true }: UserBadgeProps) => {
 
   const metadata = user?.user_metadata ?? {};
   // Comptes Google : full_name / name + avatar_url (photo de profil)
-  // Comptes email : repli sur l'adresse email
+  // Comptes email : repli sur la partie locale de l'adresse (avant le @)
   const avatarUrl = metadata.avatar_url || metadata.picture;
-  const displayName = metadata.full_name || metadata.name || user?.email;
+  const emailPrefix = user?.email?.split("@")[0];
+  const displayName = metadata.full_name || metadata.name || emailPrefix;
 
   return (
     <div
