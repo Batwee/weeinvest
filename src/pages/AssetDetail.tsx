@@ -95,6 +95,10 @@ const formatRemainingCooldown = (updatedAt?: string) => {
 const needsIndexRefresh = (investment?: InvestmentOptions | null) => {
   if (!investment) return false;
 
+  // Une source F&G est configurée mais la valeur manque : le cache a été écrit
+  // avant la configuration, il faut retenter plutôt que de garder la carte vide.
+  if (investment.lien_fng && investment.fear_and_greed == null) return true;
+
   const today = getTodayDate();
 
   const fngStale =
