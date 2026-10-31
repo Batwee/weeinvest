@@ -347,7 +347,10 @@ const AssetDetailPage = () => {
                 .select()
                 .single();
 
-              if (!updateError && updatedInv) {
+              if (updateError) {
+                // Erreur silencieuse auparavant : typiquement un refus RLS sur investment_options
+                console.error("Mise à jour des indices refusée:", updateError.message);
+              } else if (updatedInv) {
                 finalInvestment = updatedInv;
               }
             }
