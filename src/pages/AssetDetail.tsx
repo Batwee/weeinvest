@@ -82,6 +82,12 @@ const formatRemainingCooldown = (updatedAt?: string) => {
   return `${totalHours} h`;
 };
 
+// Catégories d'investissement autorisant l'ajout d'un ticker (voir table investment_options)
+// id_invest : 1 = Crypto, 2 = Bourse, 5 = Métaux Précieux
+const TICKER_INVEST_IDS = [1, 2, 5];
+
+const supportsTicker = (idInvest?: number) => TICKER_INVEST_IDS.includes(Number(idInvest));
+
 const AssetDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -406,7 +412,12 @@ const AssetDetailPage = () => {
       }
 
       if (!apiKey) {
-        console.error("Aucune clé API Alpha Vantage trouvée pour cet utilisateur");
+        toast({
+          variant: "destructive",
+          title: "Clé API requise",
+          description: "Ajoutez votre clé Alpha Vantage pour lancer l'analyse technique.",
+        });
+        navigate("/api-key");
         return;
       }
 
@@ -848,39 +859,41 @@ const AssetDetailPage = () => {
             );
           })}
 
-          <Card className="border border-dashed border-white/30 bg-white/10 shadow-none">
-            <CardContent className="pt-4 pb-4 space-y-3">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <Plus className="w-4 h-4 text-primary" />
-                Ajouter un actif
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Input
-                  value={newAssetName}
-                  onChange={(e) => setNewAssetName(e.target.value)}
-                  placeholder="Nom de l'actif (ex : Bitcoin)"
-                  className="h-9"
-                />
-                <Input
-                  value={newAssetSymbol}
-                  onChange={(e) => setNewAssetSymbol(e.target.value)}
-                  placeholder="Ticker (ex : BTCUSD)"
-                  className="h-9 sm:w-44 font-mono uppercase"
-                />
-                <Button
-                  onClick={handleAddAsset}
-                  disabled={addingAsset}
-                  className="h-9 shrink-0 gap-2"
-                >
-                  {addingAsset ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                  Ajouter
-                </Button>
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                L'actif sera rattaché à cette allocation et à votre compte.
-              </p>
-            </CardContent>
-          </Card>
+          {supportsTicker(investment.id_invest) && (
+            <Card className="border border-dashed border-white/30 bg-white/10 shadow-none">
+              <CardContent className="pt-4 pb-4 space-y-3">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <Plus className="w-4 h-4 text-primary" />
+                  Ajouter un actif
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Input
+                    value={newAssetName}
+                    onChange={(e) => setNewAssetName(e.target.value)}
+                    placeholder="Nom de l'actif (ex : Bitcoin)"
+                    className="h-9"
+                  />
+                  <Input
+                    value={newAssetSymbol}
+                    onChange={(e) => setNewAssetSymbol(e.target.value)}
+                    placeholder="Ticker (ex : BTCUSD)"
+                    className="h-9 sm:w-44 font-mono uppercase"
+                  />
+                  <Button
+                    onClick={handleAddAsset}
+                    disabled={addingAsset}
+                    className="h-9 shrink-0 gap-2"
+                  >
+                    {addingAsset ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    Ajouter
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  L'actif sera rattaché à cette allocation et à votre compte.
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {affiliates.length > 0 && (
