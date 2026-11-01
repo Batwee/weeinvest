@@ -5,6 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/use-toast";
 import { 
   TrendingUp, 
@@ -23,7 +31,9 @@ import {
   Check,
   X,
   Bell,
-  BellOff
+  BellOff,
+  Upload,
+  FileSpreadsheet
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { UserBadge } from "@/components/UserBadge";
@@ -140,6 +150,37 @@ const supportsTicker = (idInvest?: number) => TICKER_INVEST_IDS.includes(Number(
 const filterVisibleAssets = (list: AssetDetailType[], userId?: string) =>
   list.filter((asset) => !asset.id_user || asset.id_user === userId);
 
+// Analyse un CSV à deux colonnes (Nom, Symbol/Ticker). Séparateur « , » ou « ; ».
+// La ligne d'en-tête éventuelle est ignorée, les lignes vides sont écartées.
+const parseCsvRows = (text: string): { name: string; symbol: string }[] => {
+  const rows: { name: string; symbol: string }[] = [];
+
+  text
+    .replace(/^\uFEFF/, "")
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== "")
+    .forEach((line) => {
+      const separator = line.includes(";") && !line.includes(",") ? ";" : ",";
+      const cells = line.split(separator).map((cell) => cell.trim().replace(/^"|"$/g, "").trim());
+      const name = cells[0] ?? "";
+      const symbol = (cells[1] ?? "").toUpperCase();
+
+      if (!name || !symbol) return;
+      // En-tête du type « Nom,Ticker »
+      if (
+        rows.length === 0 &&
+        /^(nom|name)$/i.test(name) &&
+        /^(symbol|symbole|ticker|sym)$/i.test(symbol)
+      ) {
+        return;
+      }
+
+      rows.push({ name, symbol });
+    });
+
+  return rows;
+};
+
 const AssetDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -158,6 +199,18 @@ const AssetDetailPage = () => {
   const [editSymbol, setEditSymbol] = useState("");
   const [busyAssetId, setBusyAssetId] = useState<number | null>(null);
   const [busyAlertId, setBusyAlertId] = useState<number | null>(null);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [csvRows, setCsvRows] = useState<{ name: string; symbol: string }[]>([]);
+  const [csvFileName, setCsvFileName] = useState("");
+  const [importing, setImporting] = useState(false);
+
+  const resetAddForm = () => {
+    setNewAssetName("");
+    setNewAssetSymbol("");
+    setCsvRows([]);
+    setCsvFileName("");
+    setAddDialogOpen(false);
+  };
 
   const updateCache = (
     nextInvestment: InvestmentOptions | null = investment,
@@ -200,8 +253,7 @@ const AssetDetailPage = () => {
       );
       setAssets(nextAssets);
       updateCache(investment, nextAssets, affiliates);
-      setNewAssetName("");
-      setNewAssetSymbol("");
+      resetAddForm();
       toast({ title: "Actif ajouté", duration: 2000 });
     } catch (err) {
       console.error("Failed to add asset:", err);
@@ -212,6 +264,79 @@ const AssetDetailPage = () => {
       });
     } finally {
       setAddingAsset(false);
+    }
+  };
+
+  const handleCsvFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const parsed = parseCsvRows(await file.text());
+      setCsvRows(parsed);
+      setCsvFileName(file.name);
+
+      if (parsed.length === 0) {
+        toast({
+          variant: "destructive",
+          title: "Aucune ligne valide",
+          description: "Le fichier doit contenir deux colonnes : Nom puis Ticker.",
+        });
+      }
+    } catch (err) {
+      console.error("Failed to read CSV:", err);
+      toast({
+        variant: "destructive",
+        title: "Lecture impossible",
+        description: "Le fichier CSV n'a pas pu être lu.",
+      });
+    } finally {
+      // Permet de relire le même fichier après correction
+      event.target.value = "";
+    }
+  };
+
+  const handleImportCsv = async () => {
+    if (!user || !id) return;
+
+    if (csvRows.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Aucun actif à importer",
+        description: "Sélectionnez d'abord un fichier CSV valide.",
+      });
+      return;
+    }
+
+    setImporting(true);
+    try {
+      const payload = csvRows.map((row) => ({
+        name_asset: row.name,
+        symbol: row.symbol,
+        id_invest: Number(id),
+        id_user: user.id,
+      }));
+
+      const { data, error } = await supabase.from("asset_details").insert(payload).select();
+      if (error) throw error;
+
+      const inserted = (data ?? []) as AssetDetailType[];
+      const nextAssets = [...assets, ...inserted].sort(
+        (a, b) => (b.market_cap || 0) - (a.market_cap || 0)
+      );
+      setAssets(nextAssets);
+      updateCache(investment, nextAssets, affiliates);
+      resetAddForm();
+      toast({ title: `${inserted.length} actif(s) importé(s)`, duration: 2500 });
+    } catch (err) {
+      console.error("Failed to import CSV:", err);
+      toast({
+        variant: "destructive",
+        title: "Import impossible",
+        description: err instanceof Error ? err.message : "Une erreur est survenue.",
+      });
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -838,7 +963,20 @@ const AssetDetailPage = () => {
         </header>
 
         <div className="grid grid-cols-1 gap-3">
-          <h2 className="text-xl font-semibold">{isSavings ? "Supports d'épargne" : "Composants de l'allocation"}</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-xl font-semibold">{isSavings ? "Supports d'épargne" : "Composants de l'allocation"}</h2>
+            {supportsTicker(investment.id_invest) && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setAddDialogOpen(true)}
+                title="Ajouter un actif"
+                className="h-8 w-8 rounded-full bg-white/40 hover:bg-white/60 shadow-sm border border-white/20 shrink-0"
+              >
+                <Plus className="w-4 h-4 text-primary" />
+              </Button>
+            )}
+          </div>
           {assets.map((asset) => {
             const lastUpdate = asset.RSI_SMA_updated_at ? new Date(asset.RSI_SMA_updated_at).getTime() : 0;
             const timeSinceLastUpdate = Date.now() - lastUpdate;
@@ -1001,42 +1139,6 @@ const AssetDetailPage = () => {
               </Card>
             );
           })}
-
-          {supportsTicker(investment.id_invest) && (
-            <Card className="border border-dashed border-white/30 bg-white/10 shadow-none">
-              <CardContent className="pt-4 pb-4 space-y-3">
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <Plus className="w-4 h-4 text-primary" />
-                  Ajouter un actif
-                </div>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <Input
-                    value={newAssetName}
-                    onChange={(e) => setNewAssetName(e.target.value)}
-                    placeholder="Nom de l'actif (ex : Bitcoin)"
-                    className="h-9"
-                  />
-                  <Input
-                    value={newAssetSymbol}
-                    onChange={(e) => setNewAssetSymbol(e.target.value)}
-                    placeholder="Ticker (ex : BTCUSD)"
-                    className="h-9 sm:w-44 font-mono uppercase"
-                  />
-                  <Button
-                    onClick={handleAddAsset}
-                    disabled={addingAsset}
-                    className="h-9 shrink-0 gap-2"
-                  >
-                    {addingAsset ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                    Ajouter
-                  </Button>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  L'actif sera rattaché à cette allocation et à votre compte.
-                </p>
-              </CardContent>
-            </Card>
-          )}
         </div>
 
         {affiliates.length > 0 && (
@@ -1074,6 +1176,96 @@ const AssetDetailPage = () => {
           </div>
         )}
       </div>
+
+      <Dialog open={addDialogOpen} onOpenChange={(open) => (open ? setAddDialogOpen(true) : resetAddForm())}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Ajouter un actif</DialogTitle>
+            <DialogDescription>
+              L'actif sera rattaché à cette allocation et à votre compte.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Tabs defaultValue="manuel" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="manuel">Ajout manuel</TabsTrigger>
+              <TabsTrigger value="csv">Import CSV</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="manuel" className="space-y-3 pt-3">
+              <Input
+                value={newAssetName}
+                onChange={(e) => setNewAssetName(e.target.value)}
+                placeholder="Nom de l'actif (ex : Bitcoin)"
+                className="h-9"
+              />
+              <Input
+                value={newAssetSymbol}
+                onChange={(e) => setNewAssetSymbol(e.target.value)}
+                placeholder="Ticker (ex : BTCUSD)"
+                className="h-9 font-mono uppercase"
+              />
+              <Button
+                onClick={handleAddAsset}
+                disabled={addingAsset}
+                className="w-full gap-2"
+              >
+                {addingAsset ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                Ajouter
+              </Button>
+            </TabsContent>
+
+            <TabsContent value="csv" className="space-y-3 pt-3">
+              <div className="rounded-lg border border-white/20 bg-white/30 p-3 text-xs text-muted-foreground space-y-1">
+                <div className="flex items-center gap-2 font-medium text-foreground">
+                  <FileSpreadsheet className="w-4 h-4 text-primary" />
+                  Format attendu
+                </div>
+                <p>Fichier CSV à deux colonnes : Nom puis Ticker.</p>
+                <p className="font-mono text-[11px]">Bitcoin,BTCUSD</p>
+                <p className="font-mono text-[11px]">Or,XAUUSD</p>
+              </div>
+
+              <Input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={handleCsvFile}
+                className="h-9 cursor-pointer file:mr-3 file:rounded-md file:border-0 file:bg-primary/10 file:px-3 file:py-1 file:text-primary"
+              />
+
+              {csvFileName && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span className="truncate">{csvFileName}</span>
+                  <span className="ml-auto shrink-0 font-medium text-foreground">
+                    {csvRows.length} ligne(s)
+                  </span>
+                </div>
+              )}
+
+              {csvRows.length > 0 && (
+                <div className="max-h-32 overflow-y-auto rounded-lg border border-white/20 bg-white/20 divide-y divide-white/10">
+                  {csvRows.map((row, index) => (
+                    <div key={`${row.symbol}-${index}`} className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
+                      <span className="truncate">{row.name}</span>
+                      <span className="shrink-0 font-mono text-primary">{row.symbol}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <Button
+                onClick={handleImportCsv}
+                disabled={importing || csvRows.length === 0}
+                className="w-full gap-2"
+              >
+                {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                Importer {csvRows.length > 0 ? `(${csvRows.length})` : ""}
+              </Button>
+            </TabsContent>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
