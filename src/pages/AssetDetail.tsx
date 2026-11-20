@@ -36,6 +36,16 @@ import {
   FileSpreadsheet
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { UserBadge } from "@/components/UserBadge";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -200,6 +210,7 @@ const AssetDetailPage = () => {
   const [busyAssetId, setBusyAssetId] = useState<number | null>(null);
   const [busyAlertId, setBusyAlertId] = useState<number | null>(null);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [assetToDelete, setAssetToDelete] = useState<AssetDetailType | null>(null);
   const [csvRows, setCsvRows] = useState<{ name: string; symbol: string }[]>([]);
   const [csvFileName, setCsvFileName] = useState("");
   const [importing, setImporting] = useState(false);
@@ -1044,7 +1055,7 @@ const AssetDetailPage = () => {
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8"
-                              onClick={() => handleDeleteAsset(asset)}
+                              onClick={() => setAssetToDelete(asset)}
                               disabled={busyAssetId === asset.id_asset}
                               title="Supprimer"
                             >
@@ -1266,6 +1277,36 @@ const AssetDetailPage = () => {
           </Tabs>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={assetToDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setAssetToDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer cet actif ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {assetToDelete
+                ? `« ${assetToDelete.name_asset || assetToDelete.name} » sera définitivement retiré de cette allocation. Cette action est irréversible.`
+                : "Cet actif sera définitivement retiré de cette allocation. Cette action est irréversible."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (assetToDelete) handleDeleteAsset(assetToDelete);
+                setAssetToDelete(null);
+              }}
+            >
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
