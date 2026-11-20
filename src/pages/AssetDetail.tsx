@@ -45,12 +45,18 @@ import {
 } from "@/lib/push";
 
 type AssetDetailCache = {
+  version?: number;
   date: string;
   cachedAt?: string;
   investment: InvestmentOptions | null;
   assets: AssetDetailType[];
   affiliates: Affiliate[];
 };
+
+// V2 : les caches antérieurs ont pu être écrits avant que la session soit
+// résolue (liste sans les actifs personnels). On les ignore pour forcer un
+// rechargement propre.
+const CACHE_VERSION = 2;
 
 const getTodayDate = () => new Date().toISOString().split("T")[0];
 
@@ -64,6 +70,7 @@ const CACHE_FRESHNESS_MS = 3 * 60 * 60 * 1000;
 
 const isCacheFresh = (cache: AssetDetailCache | null) => {
   if (!cache) return false;
+  if (cache.version !== CACHE_VERSION) return false;
 
   if (cache.cachedAt) {
     const cachedTime = new Date(cache.cachedAt).getTime();
@@ -184,7 +191,7 @@ const parseCsvRows = (text: string): { name: string; symbol: string }[] => {
 const AssetDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const [investment, setInvestment] = useState<InvestmentOptions | null>(null);
   const [assets, setAssets] = useState<AssetDetailType[]>([]);
@@ -220,6 +227,7 @@ const AssetDetailPage = () => {
     if (!id) return;
 
     writeAssetDetailCache(id, {
+      version: CACHE_VERSION,
       date: getTodayDate(),
       cachedAt: new Date().toISOString(),
       investment: nextInvestment,
@@ -480,6 +488,10 @@ const AssetDetailPage = () => {
   useEffect(() => {
     const fetchAssetData = async () => {
       if (!id) return;
+      // Attendre que la session soit résolue : sinon `user` est null et le
+      // filtre des actifs exclut à tort les actifs personnels, puis ce
+      // résultat tronqué est mis en cache.
+      if (authLoading) return;
       setLoading(true);
 
       const today = getTodayDate();
@@ -617,6 +629,7 @@ const AssetDetailPage = () => {
         const nextAffiliates = affiliatesData || [];
         setAffiliates(nextAffiliates);
         writeAssetDetailCache(id, {
+          version: CACHE_VERSION,
           date: today,
           cachedAt: new Date().toISOString(),
           investment: finalInvestment,
@@ -631,7 +644,7 @@ const AssetDetailPage = () => {
     };
 
     fetchAssetData();
-  }, [id, user?.id]);
+  }, [id, user?.id, authLoading]);
 
   const handleTechnicalAnalysis = async (asset: AssetDetailType) => {
     if (isAnalysisLocked(asset.RSI_SMA_updated_at)) {
