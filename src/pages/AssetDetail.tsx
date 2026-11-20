@@ -33,9 +33,21 @@ import {
   Bell,
   BellOff,
   Upload,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { UserBadge } from "@/components/UserBadge";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -157,6 +169,23 @@ const supportsTicker = (idInvest?: number) => TICKER_INVEST_IDS.includes(Number(
 const filterVisibleAssets = (list: AssetDetailType[], userId?: string) =>
   list.filter((asset) => !asset.id_user || asset.id_user === userId);
 
+// Préférence d'affichage des actifs de base (id_user NULL), partagée par toutes
+// les allocations. Valeur par défaut : affichés (utile pour les débutants).
+const SHOW_BASE_ASSETS_KEY = "asset-detail-show-base-assets";
+
+const readShowBaseAssets = () => {
+  if (typeof window === "undefined") return true;
+
+  try {
+    return localStorage.getItem(SHOW_BASE_ASSETS_KEY) !== "false";
+  } catch (error) {
+    console.error("Failed to read base assets visibility:", error);
+    return true;
+  }
+};
+
+const isBaseAsset = (asset: AssetDetailType) => !asset.id_user;
+
 // Analyse un CSV à deux colonnes (Nom, Symbol/Ticker). Séparateur « , » ou « ; ».
 // La ligne d'en-tête éventuelle est ignorée, les lignes vides sont écartées.
 const parseCsvRows = (text: string): { name: string; symbol: string }[] => {
@@ -207,6 +236,8 @@ const AssetDetailPage = () => {
   const [busyAssetId, setBusyAssetId] = useState<number | null>(null);
   const [busyAlertId, setBusyAlertId] = useState<number | null>(null);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [assetToDelete, setAssetToDelete] = useState<AssetDetailType | null>(null);
+  const [showBaseAssets, setShowBaseAssets] = useState(readShowBaseAssets);
   const [csvRows, setCsvRows] = useState<{ name: string; symbol: string }[]>([]);
   const [csvFileName, setCsvFileName] = useState("");
   const [importing, setImporting] = useState(false);
@@ -846,6 +877,23 @@ const AssetDetailPage = () => {
     }
   };
 
+  const toggleBaseAssets = () => {
+    setShowBaseAssets((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SHOW_BASE_ASSETS_KEY, String(next));
+      } catch (error) {
+        console.error("Failed to persist base assets visibility:", error);
+      }
+      return next;
+    });
+  };
+
+  const hasBaseAssets = assets.some(isBaseAsset);
+  // Les actifs de base restent chargés en mémoire ; seul l'affichage est filtré
+  // afin que la bascule soit instantanée, sans rechargement.
+  const displayedAssets = showBaseAssets ? assets : assets.filter((asset) => !isBaseAsset(asset));
+
   const isSavings = investment?.name_invest?.toLowerCase().includes("epargne") || investment?.name_invest?.toLowerCase().includes("livret");
 
   if (loading) {
@@ -978,19 +1026,39 @@ const AssetDetailPage = () => {
         <div className="grid grid-cols-1 gap-3">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-xl font-semibold">{isSavings ? "Supports d'épargne" : "Composants de l'allocation"}</h2>
-            {supportsTicker(investment.id_invest) && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setAddDialogOpen(true)}
-                title="Ajouter un actif"
-                className="h-8 w-8 rounded-full bg-white/40 hover:bg-white/60 shadow-sm border border-white/20 shrink-0"
-              >
-                <Plus className="w-4 h-4 text-primary" />
-              </Button>
-            )}
+            <div className="flex items-center gap-1">
+              {hasBaseAssets && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleBaseAssets}
+                  title={showBaseAssets ? "Masquer les actifs de base" : "Afficher les actifs de base"}
+                  className="h-8 w-8 rounded-full bg-white/40 hover:bg-white/60 shadow-sm border border-white/20 shrink-0"
+                >
+                  {showBaseAssets
+                    ? <Eye className="w-4 h-4 text-primary" />
+                    : <EyeOff className="w-4 h-4 text-muted-foreground" />}
+                </Button>
+              )}
+              {supportsTicker(investment.id_invest) && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setAddDialogOpen(true)}
+                  title="Ajouter un actif"
+                  className="h-8 w-8 rounded-full bg-white/40 hover:bg-white/60 shadow-sm border border-white/20 shrink-0"
+                >
+                  <Plus className="w-4 h-4 text-primary" />
+                </Button>
+              )}
+            </div>
           </div>
-          {assets.map((asset) => {
+          {assets.length > 0 && displayedAssets.length === 0 && (
+            <p className="text-sm text-muted-foreground px-1">
+              Les actifs de base sont masqués. Utilisez l'icône œil pour les réafficher.
+            </p>
+          )}
+          {displayedAssets.map((asset) => {
             const lastUpdate = asset.RSI_SMA_updated_at ? new Date(asset.RSI_SMA_updated_at).getTime() : 0;
             const timeSinceLastUpdate = Date.now() - lastUpdate;
             const canAnalyze = timeSinceLastUpdate >= ANALYSIS_COOLDOWN_MS;
@@ -1057,7 +1125,7 @@ const AssetDetailPage = () => {
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8"
-                              onClick={() => handleDeleteAsset(asset)}
+                              onClick={() => setAssetToDelete(asset)}
                               disabled={busyAssetId === asset.id_asset}
                               title="Supprimer"
                             >
@@ -1279,6 +1347,36 @@ const AssetDetailPage = () => {
           </Tabs>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={assetToDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setAssetToDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer cet actif ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {assetToDelete
+                ? `« ${assetToDelete.name_asset || assetToDelete.name} » sera définitivement retiré de cette allocation. Cette action est irréversible.`
+                : "Cet actif sera définitivement retiré de cette allocation. Cette action est irréversible."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (assetToDelete) handleDeleteAsset(assetToDelete);
+                setAssetToDelete(null);
+              }}
+            >
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
