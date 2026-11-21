@@ -44,7 +44,8 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
-  Wallet
+  Wallet,
+  ChevronDown
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -312,6 +313,8 @@ const AssetDetailPage = () => {
   const [savingPosition, setSavingPosition] = useState(false);
   const [positionToDelete, setPositionToDelete] = useState<StockPosition | null>(null);
   const [refreshingPrices, setRefreshingPrices] = useState(false);
+  // Position dont le panneau détaillé est ouvert (null = toutes repliées)
+  const [openPositionId, setOpenPositionId] = useState<number | null>(null);
 
   const resetAddForm = () => {
     setNewAssetName("");
@@ -1692,99 +1695,137 @@ const AssetDetailPage = () => {
               const gainPercent =
                 currentValue != null && avgPrice > 0 ? (Number(price) / avgPrice - 1) * 100 : null;
               const isPositive = (gain ?? 0) >= 0;
+              const isOpen = openPositionId === position.id_position;
 
               return (
-                <Card key={position.id_position} className="glassmorphism border-none overflow-hidden group">
-                  <CardContent className="space-y-2 px-4 py-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="truncate font-semibold">
-                            {asset?.name_asset || asset?.name || "Entreprise"}
-                          </span>
-                          {asset?.symbol && (
-                            <Badge variant="outline" className="font-mono text-[10px]">{asset.symbol}</Badge>
-                          )}
-                          <Badge
-                            variant={position.account_type === "PEA" ? "default" : "secondary"}
-                            className="text-[10px]"
-                          >
-                            {position.account_type}
-                          </Badge>
-                          {position.exchange && (
-                            <span className="text-[10px] text-muted-foreground">{position.exchange}</span>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-muted-foreground">
-                          Cours {hasPrice ? formatAmount(Number(price), currency) : "non disponible"}
-                          {" · "}
-                          {formatDateTimeLabel(asset?.price_updated_at)}
-                        </p>
+                <Card key={position.id_position} className="glassmorphism border-none overflow-hidden">
+                  {/* Ligne sobre : nom à gauche, performance à droite */}
+                  <button
+                    type="button"
+                    onClick={() => setOpenPositionId(isOpen ? null : position.id_position)}
+                    aria-expanded={isOpen}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-white/30"
+                  >
+                    <span className="min-w-0 truncate font-semibold">
+                      {asset?.name_asset || asset?.name || "Entreprise"}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      {gain != null ? (
+                        <span className={`text-sm font-bold ${isPositive ? "text-green-600" : "text-red-600"}`}>
+                          {signedAmount(gain, currency)}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                      <ChevronDown
+                        className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`}
+                      />
+                    </span>
+                  </button>
+
+                  {isOpen && (
+                    <CardContent className="space-y-3 border-t border-white/10 px-4 pb-3 pt-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">
+                          {asset?.name_asset || asset?.name || "Entreprise"}
+                        </span>
+                        {asset?.symbol && (
+                          <Badge variant="outline" className="font-mono text-[10px]">{asset.symbol}</Badge>
+                        )}
+                        <Badge
+                          variant={position.account_type === "PEA" ? "default" : "secondary"}
+                          className="text-[10px]"
+                        >
+                          {position.account_type}
+                        </Badge>
+                        {position.exchange && (
+                          <span className="text-[10px] text-muted-foreground">{position.exchange}</span>
+                        )}
                       </div>
-                      <div className="flex shrink-0 items-center gap-1">
+
+                      <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground">Quantité</p>
+                          <p className="font-medium">{formatQuantity(quantity)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground">Prix moyen</p>
+                          <p className="font-medium">{formatAmount(avgPrice, currency)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground">Prix de revient</p>
+                          <p className="font-medium">{formatAmount(cost, currency)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground">Cours actuel</p>
+                          <p className="font-medium">
+                            {hasPrice ? formatAmount(Number(price), currency) : "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground">Valeur actuelle</p>
+                          <p className="font-medium">
+                            {currentValue != null ? formatAmount(currentValue, currency) : "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground">Plus-value</p>
+                          <p
+                            className={`font-medium ${
+                              gain == null
+                                ? "text-muted-foreground"
+                                : isPositive
+                                  ? "text-green-600"
+                                  : "text-red-600"
+                            }`}
+                          >
+                            {gain != null ? signedAmount(gain, currency) : "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground">Performance</p>
+                          <p
+                            className={`font-medium ${
+                              gainPercent == null
+                                ? "text-muted-foreground"
+                                : gainPercent >= 0
+                                  ? "text-green-600"
+                                  : "text-red-600"
+                            }`}
+                          >
+                            {gainPercent != null
+                              ? `${gainPercent >= 0 ? "+" : ""}${gainPercent.toFixed(2)} %`
+                              : "—"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <p className="text-[10px] text-muted-foreground">
+                        Dernière actualisation du cours : {formatDateTimeLabel(asset?.price_updated_at)}
+                      </p>
+
+                      <div className="flex items-center justify-end gap-1 border-t border-white/10 pt-2">
                         <Button
-                          size="icon"
+                          size="sm"
                           variant="ghost"
-                          className="h-7 w-7"
-                          title="Modifier la position"
+                          className="h-7 gap-1.5 rounded-full px-3 text-xs font-medium"
                           onClick={() => openEditPosition(position)}
                         >
                           <Pencil className="h-3.5 w-3.5" />
+                          Modifier
                         </Button>
                         <Button
-                          size="icon"
+                          size="sm"
                           variant="ghost"
-                          className="h-7 w-7 text-destructive"
-                          title="Supprimer la position"
+                          className="h-7 gap-1.5 rounded-full px-3 text-xs font-medium text-destructive hover:text-destructive"
                           onClick={() => setPositionToDelete(position)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
+                          Supprimer
                         </Button>
                       </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-                      <div>
-                        <p className="text-[10px] font-semibold text-muted-foreground">Quantité</p>
-                        <p className="font-medium">{formatQuantity(quantity)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-semibold text-muted-foreground">Prix moyen</p>
-                        <p className="font-medium">{formatAmount(avgPrice, currency)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-semibold text-muted-foreground">Prix de revient</p>
-                        <p className="font-medium">{formatAmount(cost, currency)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-semibold text-muted-foreground">Valeur actuelle</p>
-                        <p className="font-medium">
-                          {currentValue != null ? formatAmount(currentValue, currency) : "—"}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-2 border-t border-white/10 pt-2">
-                      <span className="text-[10px] text-muted-foreground">Plus-value latente</span>
-                      {gain != null && gainPercent != null ? (
-                        <span
-                          className={`flex items-center gap-1 text-sm font-bold ${isPositive ? "text-green-600" : "text-red-600"}`}
-                        >
-                          {isPositive
-                            ? <TrendingUp className="h-4 w-4" />
-                            : <TrendingDown className="h-4 w-4" />}
-                          {signedAmount(gain, currency)}
-                          <span className="text-xs">
-                            ({isPositive ? "+" : ""}{gainPercent.toFixed(2)} %)
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">
-                          Cours indisponible — actualisez les cours
-                        </span>
-                      )}
-                    </div>
-                  </CardContent>
+                    </CardContent>
+                  )}
                 </Card>
               );
             })}
