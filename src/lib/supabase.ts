@@ -63,6 +63,28 @@ export type AssetDetail = {
   market_index?: boolean | null;
   percentage?: number | null;
   id_user?: string | null;
+  // false = entreprise référencée par une position mais absente de la watchlist
+  is_followed?: boolean;
+  // Dernier cours connu (cache communautaire)
+  price?: number | null;
+  price_updated_at?: string | null;
+};
+
+export type AccountType = "PEA" | "CTO";
+
+export type StockPosition = {
+  id_position: number;
+  id_user: string;
+  id_asset: number;
+  account_type: AccountType;
+  quantity: number;
+  avg_price: number;
+  currency: string;
+  exchange?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  // Entreprise du référentiel, jointe à la lecture
+  asset_details?: AssetDetail | null;
 };
 
 export type Affiliate = {
