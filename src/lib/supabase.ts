@@ -73,3 +73,10 @@ export type Affiliate = {
   id_invest: number;
   click_count?: number | null;
 };
+
+export type UserAssetPreference = {
+  id_user: string;
+  id_invest: number;
+  show_base_assets: boolean;
+  updated_at?: string;
+};

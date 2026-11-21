@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { supabase, getApiKey, type InvestmentOptions, type AssetDetail as AssetDetailType, type Affiliate } from "@/lib/supabase";
+import { supabase, getApiKey, type InvestmentOptions, type AssetDetail as AssetDetailType, type Affiliate, type UserAssetPreference } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -157,26 +157,24 @@ const TICKER_INVEST_IDS = [1, 2, 5];
 
 const supportsTicker = (idInvest?: number) => TICKER_INVEST_IDS.includes(Number(idInvest));
 
+// Libellé du bouton d'ajout, adapté à la nature de l'actif de l'allocation.
+const ADD_ASSET_LABELS: Record<number, string> = {
+  1: "Ajouter une crypto",
+  2: "Ajouter une action",
+  5: "Ajouter un métal",
+};
+
+const getAddAssetLabel = (idInvest?: number) =>
+  ADD_ASSET_LABELS[Number(idInvest)] ?? "Ajouter un actif";
+
 // Actifs visibles dans la liste : ceux de base (id_user NULL) et ceux de
 // l'utilisateur connecté. Les actifs créés par d'autres comptes sont exclus.
 const filterVisibleAssets = (list: AssetDetailType[], userId?: string) =>
   list.filter((asset) => !asset.id_user || asset.id_user === userId);
 
-// Préférence d'affichage des actifs de base (id_user NULL), partagée par toutes
-// les allocations. Valeur par défaut : affichés (utile pour les débutants).
-const SHOW_BASE_ASSETS_KEY = "asset-detail-show-base-assets";
-
-const readShowBaseAssets = () => {
-  if (typeof window === "undefined") return true;
-
-  try {
-    return localStorage.getItem(SHOW_BASE_ASSETS_KEY) !== "false";
-  } catch (error) {
-    console.error("Failed to read base assets visibility:", error);
-    return true;
-  }
-};
-
+// Préférence d'affichage des actifs de base (id_user NULL). Persistée en base
+// dans public.user_asset_preferences, une ligne par couple (utilisateur, type
+// d'allocation). Valeur par défaut si aucune ligne : affichés (débutants).
 const isBaseAsset = (asset: AssetDetailType) => !asset.id_user;
 
 // Analyse un CSV à deux colonnes (Nom, Symbol/Ticker). Séparateur « , » ou « ; ».
@@ -230,7 +228,7 @@ const AssetDetailPage = () => {
   const [busyAlertId, setBusyAlertId] = useState<number | null>(null);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [assetToDelete, setAssetToDelete] = useState<AssetDetailType | null>(null);
-  const [showBaseAssets, setShowBaseAssets] = useState(readShowBaseAssets);
+  const [showBaseAssets, setShowBaseAssets] = useState(true);
   const [csvRows, setCsvRows] = useState<{ name: string; symbol: string }[]>([]);
   const [csvFileName, setCsvFileName] = useState("");
   const [importing, setImporting] = useState(false);
@@ -664,6 +662,31 @@ const AssetDetailPage = () => {
     fetchAssetData();
   }, [id, user?.id]);
 
+  // Charge la préférence d'affichage des actifs de base pour ce type d'allocation.
+  // Aucune ligne trouvée : on conserve la valeur par défaut (affichés).
+  useEffect(() => {
+    const fetchDisplayPreference = async () => {
+      if (!user || !id) return;
+
+      const { data, error } = await supabase
+        .from("user_asset_preferences")
+        .select("show_base_assets")
+        .eq("id_user", user.id)
+        .eq("id_invest", Number(id))
+        .maybeSingle();
+
+      if (error) {
+        console.error("Failed to load asset display preference:", error);
+        return;
+      }
+
+      const preference = data as UserAssetPreference | null;
+      if (preference) setShowBaseAssets(preference.show_base_assets);
+    };
+
+    fetchDisplayPreference();
+  }, [id, user?.id]);
+
   const handleTechnicalAnalysis = async (asset: AssetDetailType) => {
     if (isAnalysisLocked(asset.RSI_SMA_updated_at)) {
       return;
@@ -864,22 +887,42 @@ const AssetDetailPage = () => {
     }
   };
 
-  const toggleBaseAssets = () => {
-    setShowBaseAssets((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(SHOW_BASE_ASSETS_KEY, String(next));
-      } catch (error) {
-        console.error("Failed to persist base assets visibility:", error);
-      }
-      return next;
-    });
+  const toggleBaseAssets = async () => {
+    if (!user || !id) return;
+
+    const next = !showBaseAssets;
+    // Mise à jour optimiste : la bascule est appliquée immédiatement.
+    setShowBaseAssets(next);
+
+    const { error } = await supabase
+      .from("user_asset_preferences")
+      .upsert(
+        {
+          id_user: user.id,
+          id_invest: Number(id),
+          show_base_assets: next,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id_user,id_invest" }
+      );
+
+    if (error) {
+      console.error("Failed to save asset display preference:", error);
+      setShowBaseAssets(!next); // annule la bascule en cas d'échec
+      toast({
+        variant: "destructive",
+        title: "Préférence non enregistrée",
+        description: error.message,
+      });
+    }
   };
 
   const hasBaseAssets = assets.some(isBaseAsset);
   // Les actifs de base restent chargés en mémoire ; seul l'affichage est filtré
   // afin que la bascule soit instantanée, sans rechargement.
   const displayedAssets = showBaseAssets ? assets : assets.filter((asset) => !isBaseAsset(asset));
+
+  const addAssetLabel = getAddAssetLabel(investment.id_invest);
 
   const isSavings = investment?.name_invest?.toLowerCase().includes("epargne") || investment?.name_invest?.toLowerCase().includes("livret");
 
@@ -1030,12 +1073,12 @@ const AssetDetailPage = () => {
               {supportsTicker(investment.id_invest) && (
                 <Button
                   variant="ghost"
-                  size="icon"
                   onClick={() => setAddDialogOpen(true)}
-                  title="Ajouter un actif"
-                  className="h-8 w-8 rounded-full bg-white/40 hover:bg-white/60 shadow-sm border border-white/20 shrink-0"
+                  title={addAssetLabel}
+                  className="h-8 gap-1.5 px-3 rounded-full bg-white/40 hover:bg-white/60 shadow-sm border border-white/20 shrink-0 text-xs font-medium text-primary"
                 >
-                  <Plus className="w-4 h-4 text-primary" />
+                  <Plus className="w-4 h-4" />
+                  {addAssetLabel}
                 </Button>
               )}
             </div>
