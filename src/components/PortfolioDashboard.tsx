@@ -12,7 +12,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Info, Loader2, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { Info, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import { supabase, type AccountType, type PortfolioSnapshot, type StockPosition } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,6 +21,13 @@ import { ChartContainer } from "@/components/ui/chart";
 
 const ALL_ACCOUNTS = "TOUS" as const;
 type AccountFilter = typeof ALL_ACCOUNTS | AccountType;
+
+// Devise de consolidation du tableau de bord.
+const BASE_CURRENCY = "EUR";
+
+// Taux de référence BCE, sans clé API (n'entame pas le quota Alpha Vantage).
+const FX_ENDPOINT = "https://api.frankfurter.app/latest";
+const FX_SOURCE = "BCE (Frankfurter)";
 
 type Period = "1S" | "1M" | "YTD" | "1A" | "MAX";
 const PERIODS: { value: Period; label: string }[] = [
@@ -61,6 +68,9 @@ const formatCompactMoney = (value: number, currency: string) => {
   }
 };
 
+const formatRate = (value: number) =>
+  new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 4 }).format(value);
+
 const formatSigned = (value: number, currency: string) =>
   `${value >= 0 ? "+" : "−"}${formatMoney(Math.abs(value), currency)}`;
 
@@ -72,13 +82,8 @@ const formatDay = (date: string) =>
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-type CurrencySummary = {
-  currency: string;
-  value: number;
-  cost: number;
-  count: number;
-  missing: number;
-};
+/** Taux exprimés en EUR pour 1 unité de devise. EUR vaut toujours 1. */
+type FxRates = { rates: Record<string, number>; date: string; source: string };
 
 type AllocationDatum = {
   key: string;
@@ -96,26 +101,13 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
   const [accountFilter, setAccountFilter] = useState<AccountFilter>(ALL_ACCOUNTS);
   const [period, setPeriod] = useState<Period>("1M");
   const [chartMode, setChartMode] = useState<"value" | "perf">("value");
-  const [currency, setCurrency] = useState<string>("");
   const [activeSlice, setActiveSlice] = useState<number | null>(null);
+  const [fx, setFx] = useState<FxRates | null>(null);
+  const [fxError, setFxError] = useState(false);
+  const [fxLoading, setFxLoading] = useState(false);
+  const [showFx, setShowFx] = useState(false);
 
   const lastRecordedSignature = useRef("");
-
-  // --- Référentiel : devises présentes, triées par valeur décroissante --------
-  const currencyOrder = useMemo(() => {
-    const totals = new Map<string, number>();
-    positions.forEach((p) => {
-      const c = p.currency || "EUR";
-      const price = p.asset_details?.price;
-      const value = price == null ? 0 : Number(p.quantity) * Number(price);
-      totals.set(c, (totals.get(c) ?? 0) + value);
-    });
-    return Array.from(totals.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([c]) => c);
-  }, [positions]);
-
-  const effectiveCurrency = currency || currencyOrder[0] || "EUR";
 
   const filteredPositions = useMemo(
     () =>
@@ -125,65 +117,178 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
     [positions, accountFilter]
   );
 
-  // --- PARTIE 1 : synthèse par devise (aucune conversion) ---------------------
-  const currencySummaries = useMemo(() => {
-    const map = new Map<string, CurrencySummary>();
-    filteredPositions.forEach((p) => {
-      const c = p.currency || "EUR";
-      const entry = map.get(c) ?? { currency: c, value: 0, cost: 0, count: 0, missing: 0 };
-      entry.cost += Number(p.quantity) * Number(p.avg_price);
-      if (p.asset_details?.price == null) {
-        entry.missing += 1;
-      } else {
-        entry.value += Number(p.quantity) * Number(p.asset_details.price);
-      }
-      entry.count += 1;
-      map.set(c, entry);
-    });
-    return Array.from(map.values()).sort((a, b) => b.value - a.value);
-  }, [filteredPositions]);
+  // --- Devise d'affichage : EUR consolidé, sauf vue CTO libellée à l'origine --
+  const displayCurrency = useMemo(() => {
+    if (accountFilter !== "CTO") return BASE_CURRENCY;
+    const currencies = new Set(
+      positions.filter((p) => p.account_type === "CTO").map((p) => p.currency || BASE_CURRENCY)
+    );
+    if (currencies.size === 1) return Array.from(currencies)[0];
+    return BASE_CURRENCY;
+  }, [positions, accountFilter]);
 
-  // Répartition PEA / CTO pour la devise de référence.
-  const accountSplit = useMemo(() => {
-    const totals: Record<AccountType, number> = { PEA: 0, CTO: 0 };
-    let missing = 0;
+  // --- Devises étrangères à convertir (positions + historique enregistré) -----
+  const foreignCurrencies = useMemo(() => {
+    const set = new Set<string>();
     positions.forEach((p) => {
-      if ((p.currency || "EUR") !== effectiveCurrency) return;
-      const price = p.asset_details?.price;
-      if (price == null) {
-        missing += 1;
+      const c = p.currency || BASE_CURRENCY;
+      if (c !== BASE_CURRENCY) set.add(c);
+    });
+    snapshots.forEach((s) => {
+      if (s.currency && s.currency !== BASE_CURRENCY) set.add(s.currency);
+    });
+    return Array.from(set).sort();
+  }, [positions, snapshots]);
+
+  // --- Chargement du taux de change (identifiable et daté) --------------------
+  useEffect(() => {
+    if (foreignCurrencies.length === 0) {
+      setFx(null);
+      setFxError(false);
+      return;
+    }
+    let cancelled = false;
+
+    const load = async () => {
+      setFxLoading(true);
+      try {
+        const res = await fetch(
+          `${FX_ENDPOINT}?from=${BASE_CURRENCY}&to=${foreignCurrencies.join(",")}`
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = (await res.json()) as { date?: string; rates?: Record<string, number> };
+        if (cancelled) return;
+        const rates: Record<string, number> = { [BASE_CURRENCY]: 1 };
+        foreignCurrencies.forEach((c) => {
+          const perEur = Number(json?.rates?.[c]);
+          // L'API renvoie « 1 EUR = x DEV » : on stocke l'inverse (EUR par devise).
+          rates[c] = Number.isFinite(perEur) && perEur > 0 ? 1 / perEur : NaN;
+        });
+        setFx({ rates, date: json?.date || todayIso(), source: FX_SOURCE });
+        setFxError(false);
+      } catch (error) {
+        if (cancelled) return;
+        console.error("Échec du chargement du taux de change:", error);
+        setFx(null);
+        setFxError(true);
+      } finally {
+        if (!cancelled) setFxLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [foreignCurrencies]);
+
+  const eurRate = (currency: string): number | null => {
+    if (currency === BASE_CURRENCY) return 1;
+    const rate = fx?.rates?.[currency];
+    return Number.isFinite(rate) && rate > 0 ? rate : null;
+  };
+
+  /** Conversion explicite : renvoie null si un taux manque (jamais d'addition brute). */
+  const convert = (value: number, from: string, to: string): number | null => {
+    if (from === to) return value;
+    const rateFrom = eurRate(from);
+    const rateTo = eurRate(to);
+    if (rateFrom == null || rateTo == null) return null;
+    return (value * rateFrom) / rateTo;
+  };
+
+  // --- Carte unique : valorisation consolidée selon le filtre -----------------
+  const summary = useMemo(() => {
+    let value = 0;
+    let cost = 0;
+    let count = 0;
+    let missingPrice = 0;
+    let missingFx = 0;
+    let converted = false;
+
+    filteredPositions.forEach((p) => {
+      count += 1;
+      const from = p.currency || BASE_CURRENCY;
+      if (from !== displayCurrency) converted = true;
+
+      const factor = convert(1, from, displayCurrency);
+      if (factor == null) {
+        missingFx += 1;
         return;
       }
-      totals[p.account_type] += Number(p.quantity) * Number(price);
+
+      cost += Number(p.quantity) * Number(p.avg_price) * factor;
+
+      const price = p.asset_details?.price;
+      if (price == null) {
+        missingPrice += 1;
+        return;
+      }
+      value += Number(p.quantity) * Number(price) * factor;
+    });
+
+    const gain = value - cost;
+    return {
+      currency: displayCurrency,
+      value,
+      cost,
+      count,
+      gain,
+      gainPercent: cost > 0 ? (gain / cost) * 100 : 0,
+      missingPrice,
+      missingFx,
+      converted,
+      isComplete: missingPrice === 0 && missingFx === 0,
+    };
+  }, [filteredPositions, displayCurrency, fx]);
+
+  // Devises réellement converties pour la sélection courante.
+  const conversionCurrencies = useMemo(() => {
+    const set = new Set<string>();
+    filteredPositions.forEach((p) => {
+      const c = p.currency || BASE_CURRENCY;
+      if (c !== displayCurrency) set.add(c);
+    });
+    return Array.from(set).sort();
+  }, [filteredPositions, displayCurrency]);
+
+  // Répartition PEA / CTO (vue « Tous » uniquement), consolidée en EUR.
+  const accountSplit = useMemo(() => {
+    const totals: Record<AccountType, number> = { PEA: 0, CTO: 0 };
+    positions.forEach((p) => {
+      const price = p.asset_details?.price;
+      if (price == null) return;
+      const convertedValue = convert(Number(p.quantity) * Number(price), p.currency || BASE_CURRENCY, BASE_CURRENCY);
+      if (convertedValue == null) return;
+      totals[p.account_type] += convertedValue;
     });
     const sum = totals.PEA + totals.CTO;
     return {
       totals,
       sum,
-      missing,
       peaPercent: sum > 0 ? (totals.PEA / sum) * 100 : 0,
       ctoPercent: sum > 0 ? (totals.CTO / sum) * 100 : 0,
     };
-  }, [positions, effectiveCurrency]);
+  }, [positions, fx]);
 
   // --- PARTIE 2 : historique (snapshots réels, ajustés des apports) ----------
   const historyPoints = useMemo(() => {
-    const rows = snapshots.filter(
-      (s) =>
-        s.currency === effectiveCurrency &&
-        (accountFilter === ALL_ACCOUNTS || s.account_type === accountFilter)
-    );
     const byDate = new Map<string, { value: number; cost: number }>();
-    rows.forEach((s) => {
-      const entry = byDate.get(s.snapshot_date) ?? { value: 0, cost: 0 };
-      entry.value += Number(s.market_value);
-      entry.cost += Number(s.cost_basis);
-      byDate.set(s.snapshot_date, entry);
-    });
+    snapshots
+      .filter((s) => accountFilter === ALL_ACCOUNTS || s.account_type === accountFilter)
+      .forEach((s) => {
+        const value = convert(Number(s.market_value), s.currency, displayCurrency);
+        const cost = convert(Number(s.cost_basis), s.currency, displayCurrency);
+        if (value == null || cost == null) return;
+        const entry = byDate.get(s.snapshot_date) ?? { value: 0, cost: 0 };
+        entry.value += value;
+        entry.cost += cost;
+        byDate.set(s.snapshot_date, entry);
+      });
     return Array.from(byDate.entries())
       .map(([date, entry]) => ({ date, ...entry }))
       .sort((a, b) => a.date.localeCompare(b.date));
-  }, [snapshots, effectiveCurrency, accountFilter]);
+  }, [snapshots, accountFilter, displayCurrency, fx]);
 
   const firstSnapshotDate = historyPoints[0]?.date;
 
@@ -233,16 +338,17 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
   const allocation = useMemo(() => {
     const map = new Map<string, { name: string; symbol?: string; value: number }>();
     filteredPositions.forEach((p) => {
-      if ((p.currency || "EUR") !== effectiveCurrency) return;
       const price = p.asset_details?.price;
       if (price == null) return;
+      const convertedValue = convert(Number(p.quantity) * Number(price), p.currency || BASE_CURRENCY, displayCurrency);
+      if (convertedValue == null) return;
       const key = String(p.id_asset);
       const entry = map.get(key) ?? {
         name: p.asset_details?.name_asset || p.asset_details?.name || p.asset_details?.symbol || "Entreprise",
         symbol: p.asset_details?.symbol || undefined,
         value: 0,
       };
-      entry.value += Number(p.quantity) * Number(price);
+      entry.value += convertedValue;
       map.set(key, entry);
     });
     const rows = Array.from(map.entries())
@@ -256,7 +362,7 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
         percent: total > 0 ? (row.value / total) * 100 : 0,
       })),
     };
-  }, [filteredPositions, effectiveCurrency]);
+  }, [filteredPositions, displayCurrency, fx]);
 
   // --- Chargement des snapshots ----------------------------------------------
   useEffect(() => {
@@ -289,14 +395,15 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
   // --- Enregistrement de la photo du jour ------------------------------------
   // Conditionné : toutes les positions doivent avoir un cours, sinon la valeur
   // serait tronquée et fausserait l'historique. Une seule écriture par jour et
-  // par (devise, compte), évitant tout appel redondant.
+  // par (devise, compte), évitant tout appel redondant. Les devises d'origine
+  // sont conservées telles quelles : la conversion n'intervient qu'à l'affichage.
   useEffect(() => {
     if (!user || positions.length === 0) return;
     if (!positions.every((p) => p.asset_details?.price != null)) return;
 
     const grouped = new Map<string, { currency: string; account_type: AccountType; market_value: number; cost_basis: number }>();
     positions.forEach((p) => {
-      const c = p.currency || "EUR";
+      const c = p.currency || BASE_CURRENCY;
       const key = `${c}|${p.account_type}`;
       const entry = grouped.get(key) ?? { currency: c, account_type: p.account_type, market_value: 0, cost_basis: 0 };
       entry.cost_basis += Number(p.quantity) * Number(p.avg_price);
@@ -364,103 +471,121 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
     return "sur 1 an";
   })();
 
+  const hasValue = summary.isComplete && summary.value > 0;
+  const isPositive = summary.gain >= 0;
+
+  const fxDetails = fxLoading
+    ? "Chargement du taux de change…"
+    : fxError || !fx
+      ? "Taux de change indisponible : la conversion en euros n'est pas appliquée."
+      : `Taux utilisé : ${conversionCurrencies
+          .map((c) => {
+            const rate = eurRate(c);
+            return rate == null ? `${c} : indisponible` : `1 ${c} = ${formatRate(rate)} ${BASE_CURRENCY}`;
+          })
+          .join(" · ")} — source ${fx.source}, taux du ${format(parseISO(fx.date), "d MMMM yyyy", { locale: fr })}.`;
+
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-xl font-semibold">Tableau de bord</h2>
-        <div className="flex items-center gap-1">
-          {currencyOrder.length > 1 &&
-            currencyOrder.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setCurrency(c)}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  effectiveCurrency === c
-                    ? "bg-primary text-primary-foreground"
-                    : "border border-white/20 bg-white/40 text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {c}
-              </button>
-            ))}
-          <div className="flex rounded-full border border-white/20 bg-white/40 p-0.5">
-            {([ALL_ACCOUNTS, "PEA", "CTO"] as AccountFilter[]).map((value) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setAccountFilter(value)}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  accountFilter === value
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {value === ALL_ACCOUNTS ? "Tous" : value}
-              </button>
-            ))}
-          </div>
+        <div className="flex rounded-full border border-white/20 bg-white/40 p-0.5">
+          {([ALL_ACCOUNTS, "PEA", "CTO"] as AccountFilter[]).map((value) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setAccountFilter(value)}
+              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                accountFilter === value
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {value === ALL_ACCOUNTS ? "Tous" : value}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* PARTIE 1 — vue globale (un bloc par devise, aucune addition EUR/USD) */}
-      {currencySummaries.map((summary) => {
-        const gain = summary.value - summary.cost;
-        const gainPercent = summary.cost > 0 ? (gain / summary.cost) * 100 : 0;
-        const isPositive = gain >= 0;
-        const hasValue = summary.missing === 0 && summary.value > 0;
-
-        return (
-          <Card key={summary.currency} className="glassmorphism border-none">
-            <CardContent className="space-y-3 px-4 py-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Valeur du portefeuille · {summary.currency}
-                  </p>
-                  <p className="text-3xl font-bold tracking-tight">
-                    {hasValue ? formatMoney(summary.value, summary.currency) : "—"}
-                  </p>
-                </div>
-                {hasValue && (
-                  <div className={`flex items-center gap-1 text-right ${isPositive ? "text-green-600" : "text-red-600"}`}>
-                    {isPositive ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
-                    <div>
-                      <p className="text-sm font-bold">{formatSigned(gain, summary.currency)}</p>
-                      <p className="text-xs font-semibold">{formatSignedPercent(gainPercent)}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                <span>Investi : {formatMoney(summary.cost, summary.currency)}</span>
+      {/* Carte unique : valorisation consolidée selon le filtre */}
+      <Card className="glassmorphism border-none">
+        <CardContent className="space-y-3 px-4 py-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="flex flex-wrap items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <span>
-                  {summary.count} position{summary.count > 1 ? "s" : ""}
+                  Valeur du portefeuille
+                  {accountFilter !== ALL_ACCOUNTS ? ` · ${accountFilter}` : ""}
                 </span>
-                {summary.missing > 0 && (
-                  <span className="text-amber-600">
-                    Cours manquant pour {summary.missing} titre{summary.missing > 1 ? "s" : ""} — actualisez
-                  </span>
+                {summary.converted && (
+                  <button
+                    type="button"
+                    onClick={() => setShowFx((v) => !v)}
+                    aria-expanded={showFx}
+                    aria-label="Taux de change utilisé"
+                    title="Taux de change utilisé"
+                    className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </button>
                 )}
-              </div>
-
-              {accountFilter === ALL_ACCOUNTS && summary.currency === effectiveCurrency && accountSplit.sum > 0 && (
-                <div className="space-y-1">
-                  <div className="flex h-2 overflow-hidden rounded-full bg-secondary">
-                    <div className="bg-primary" style={{ width: `${accountSplit.peaPercent}%` }} />
-                    <div className="bg-amber-500" style={{ width: `${accountSplit.ctoPercent}%` }} />
-                  </div>
-                  <div className="flex justify-between text-[10px] text-muted-foreground">
-                    <span>PEA {accountSplit.peaPercent.toFixed(0)} % · {formatMoney(accountSplit.totals.PEA, effectiveCurrency)}</span>
-                    <span>CTO {accountSplit.ctoPercent.toFixed(0)} % · {formatMoney(accountSplit.totals.CTO, effectiveCurrency)}</span>
-                  </div>
+              </p>
+              <p className="text-3xl font-bold tracking-tight">
+                {hasValue ? formatMoney(summary.value, summary.currency) : "—"}
+              </p>
+            </div>
+            {hasValue && (
+              <div className={`flex shrink-0 items-center gap-1 text-right ${isPositive ? "text-green-600" : "text-red-600"}`}>
+                {isPositive ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
+                <div>
+                  <p className="text-sm font-bold">{formatSigned(summary.gain, summary.currency)}</p>
+                  <p className="text-xs font-semibold">{formatSignedPercent(summary.gainPercent)}</p>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        );
-      })}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span>Investi : {formatMoney(summary.cost, summary.currency)}</span>
+            <span>
+              {summary.count} position{summary.count > 1 ? "s" : ""}
+            </span>
+            {summary.missingPrice > 0 && (
+              <span className="text-amber-600">
+                Cours manquant pour {summary.missingPrice} titre{summary.missingPrice > 1 ? "s" : ""} — actualisez
+              </span>
+            )}
+            {summary.missingFx > 0 && (
+              <span className="text-amber-600">
+                Taux de change indisponible pour {summary.missingFx} position{summary.missingFx > 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+
+          {showFx && summary.converted && (
+            <p className="rounded-lg border border-white/30 bg-white/30 px-3 py-2 text-[11px] text-muted-foreground">
+              {fxDetails}
+            </p>
+          )}
+
+          {accountFilter === ALL_ACCOUNTS && accountSplit.sum > 0 && (
+            <div className="space-y-1">
+              <div className="flex h-2 overflow-hidden rounded-full bg-secondary">
+                <div className="bg-primary" style={{ width: `${accountSplit.peaPercent}%` }} />
+                <div className="bg-amber-500" style={{ width: `${accountSplit.ctoPercent}%` }} />
+              </div>
+              <div className="flex justify-between text-[10px] text-muted-foreground">
+                <span>
+                  PEA {accountSplit.peaPercent.toFixed(0)} % · {formatMoney(accountSplit.totals.PEA, BASE_CURRENCY)}
+                </span>
+                <span>
+                  CTO {accountSplit.ctoPercent.toFixed(0)} % · {formatMoney(accountSplit.totals.CTO, BASE_CURRENCY)}
+                </span>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* PARTIE 2 — évolution du portefeuille */}
       <Card className="glassmorphism border-none">
@@ -469,7 +594,7 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
             <div>
               <p className="text-sm font-semibold">Évolution du portefeuille</p>
               <p className="text-[10px] text-muted-foreground">
-                {effectiveCurrency} · {rangeLabel} · ajustée des apports/retraits
+                {displayCurrency} · {rangeLabel} · ajustée des apports/retraits
               </p>
             </div>
             <div className="flex items-center gap-1">
@@ -493,13 +618,13 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
           {periodStats && (
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <span className={`text-2xl font-bold ${periodStats.gain >= 0 ? "text-green-600" : "text-red-600"}`}>
-                {formatSigned(periodStats.gain, effectiveCurrency)}
+                {formatSigned(periodStats.gain, displayCurrency)}
               </span>
               <span className={`text-sm font-semibold ${periodStats.gain >= 0 ? "text-green-600" : "text-red-600"}`}>
                 {formatSignedPercent(periodStats.perfPercent)}
               </span>
               <span className="text-[10px] text-muted-foreground">
-                apports nets période : {formatSigned(periodStats.contributions, effectiveCurrency)}
+                apports nets période : {formatSigned(periodStats.contributions, displayCurrency)}
               </span>
             </div>
           )}
@@ -529,7 +654,7 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
                   domain={["auto", "auto"]}
                   tickFormatter={(value: number) =>
                     chartMode === "value"
-                      ? formatCompactMoney(value, effectiveCurrency)
+                      ? formatCompactMoney(value, displayCurrency)
                       : `${value > 0 ? "+" : ""}${value.toFixed(1)}%`
                   }
                 />
@@ -543,7 +668,7 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
                         <div className="font-medium">
                           {format(parseISO(point.date), "d MMMM yyyy", { locale: fr })}
                         </div>
-                        <div className="text-foreground">{formatMoney(point.value, effectiveCurrency)}</div>
+                        <div className="text-foreground">{formatMoney(point.value, displayCurrency)}</div>
                         <div className={point.perf >= 0 ? "text-green-600" : "text-red-600"}>
                           Performance {formatSignedPercent(point.perf)}
                         </div>
@@ -571,7 +696,7 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
                     ? "Chargement…"
                     : firstSnapshotDate
                       ? `Premier point enregistré le ${format(parseISO(firstSnapshotDate), "d MMMM yyyy", { locale: fr })}. La courbe s'affichera dès qu'un second jour sera enregistré.`
-                      : "Aucune historique n'existe encore : la courbe se construira à partir d'aujourd'hui, à chaque actualisation des cours."}
+                      : "Aucun historique n'existe encore : la courbe se construira à partir d'aujourd'hui, à chaque actualisation des cours."}
                 </p>
                 <p>Aucune performance passée n'est inventée : seules les données réellement enregistrées sont utilisées.</p>
               </div>
@@ -595,7 +720,7 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
             <div>
               <p className="text-sm font-semibold">Répartition par entreprise</p>
               <p className="text-[10px] text-muted-foreground">
-                {effectiveCurrency}
+                {displayCurrency}
                 {accountFilter !== ALL_ACCOUNTS ? ` · ${accountFilter}` : ""} · valeur de marché
               </p>
             </div>
@@ -622,7 +747,7 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
                           <div className="rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
                             <div className="font-medium">{datum.name}</div>
                             <div className="text-muted-foreground">
-                              {datum.percent.toFixed(1)} % · {formatMoney(datum.value, effectiveCurrency)}
+                              {datum.percent.toFixed(1)} % · {formatMoney(datum.value, displayCurrency)}
                             </div>
                           </div>
                         );
@@ -677,7 +802,7 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
                     <span className="shrink-0 text-right">
                       <span className="block text-xs font-semibold">{entry.percent.toFixed(1)} %</span>
                       <span className="block text-[10px] text-muted-foreground">
-                        {formatMoney(entry.value, effectiveCurrency)}
+                        {formatMoney(entry.value, displayCurrency)}
                       </span>
                     </span>
                   </button>
