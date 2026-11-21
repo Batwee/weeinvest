@@ -935,7 +935,9 @@ const AssetDetailPage = () => {
   // afin que la bascule soit instantanée, sans rechargement.
   const displayedAssets = showBaseAssets ? assets : assets.filter((asset) => !isBaseAsset(asset));
 
-  const addAssetLabel = getAddAssetLabel(investment.id_invest);
+  // investment peut être null pendant le chargement : accès optionnel obligatoire
+  // sinon la page plante avant les retours anticipés (écran blanc).
+  const addAssetLabel = getAddAssetLabel(investment?.id_invest);
 
   const isSavings = investment?.name_invest?.toLowerCase().includes("epargne") || investment?.name_invest?.toLowerCase().includes("livret");
 
