@@ -12,8 +12,16 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Info, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { Info, RefreshCw, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import { supabase, type AccountType, type PortfolioSnapshot, type StockPosition } from "@/lib/supabase";
+import {
+  BASE_CURRENCY,
+  convertAmount,
+  fxFactor,
+  normalizeCurrency,
+  rateAt,
+  useFxRates,
+} from "@/lib/fxRates";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,13 +29,6 @@ import { ChartContainer } from "@/components/ui/chart";
 
 const ALL_ACCOUNTS = "TOUS" as const;
 type AccountFilter = typeof ALL_ACCOUNTS | AccountType;
-
-// Devise de consolidation du tableau de bord.
-const BASE_CURRENCY = "EUR";
-
-// Taux de référence BCE, sans clé API (n'entame pas le quota Alpha Vantage).
-const FX_ENDPOINT = "https://api.frankfurter.app/latest";
-const FX_SOURCE = "BCE (Frankfurter)";
 
 type Period = "1S" | "1M" | "YTD" | "1A" | "MAX";
 const PERIODS: { value: Period; label: string }[] = [
@@ -77,13 +78,16 @@ const formatSigned = (value: number, currency: string) =>
 const formatSignedPercent = (value: number) =>
   `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(2)} %`;
 
-const formatDay = (date: string) =>
-  format(parseISO(date), "d MMM", { locale: fr });
+const formatDay = (date: string) => format(parseISO(date), "d MMM", { locale: fr });
+
+const formatFullDay = (date: string) =>
+  format(parseISO(date), "d MMMM yyyy", { locale: fr });
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-/** Taux exprimés en EUR pour 1 unité de devise. EUR vaut toujours 1. */
-type FxRates = { rates: Record<string, number>; date: string; source: string };
+/** Date d'enregistrement d'une position (ancre réelle, utilisée pour le taux). */
+const positionDate = (position: StockPosition) =>
+  position.created_at ? position.created_at.slice(0, 10) : null;
 
 type AllocationDatum = {
   key: string;
@@ -91,6 +95,14 @@ type AllocationDatum = {
   symbol?: string;
   value: number;
   percent: number;
+};
+
+type ChartPoint = {
+  date: string;
+  value: number;
+  cost: number;
+  flow: number;
+  perf: number;
 };
 
 export function PortfolioDashboard({ positions }: { positions: StockPosition[] }) {
@@ -102,9 +114,6 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
   const [period, setPeriod] = useState<Period>("1M");
   const [chartMode, setChartMode] = useState<"value" | "perf">("value");
   const [activeSlice, setActiveSlice] = useState<number | null>(null);
-  const [fx, setFx] = useState<FxRates | null>(null);
-  const [fxError, setFxError] = useState(false);
-  const [fxLoading, setFxLoading] = useState(false);
   const [showFx, setShowFx] = useState(false);
 
   const lastRecordedSignature = useRef("");
@@ -117,87 +126,51 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
     [positions, accountFilter]
   );
 
-  // --- Devise d'affichage : EUR consolidé, sauf vue CTO libellée à l'origine --
+  // --- Devise d'affichage ------------------------------------------------
+  // « Tous » et « PEA » : EUR consolidé. « CTO » : devise d'origine, sans
+  // conversion inutile (les positions USD restent en USD).
   const displayCurrency = useMemo(() => {
     if (accountFilter !== "CTO") return BASE_CURRENCY;
-    const currencies = new Set(
-      positions.filter((p) => p.account_type === "CTO").map((p) => p.currency || BASE_CURRENCY)
+    const codes = new Set(
+      positions.filter((p) => p.account_type === "CTO").map((p) => normalizeCurrency(p.currency))
     );
-    if (currencies.size === 1) return Array.from(currencies)[0];
-    return BASE_CURRENCY;
+    return codes.size === 1 ? Array.from(codes)[0] : BASE_CURRENCY;
   }, [positions, accountFilter]);
 
-  // --- Devises étrangères à convertir (positions + historique enregistré) -----
-  const foreignCurrencies = useMemo(() => {
-    const set = new Set<string>();
+  // --- Devises et dates réellement nécessaires aux conversions -----------
+  const fxInputs = useMemo(() => {
+    const currencies = new Set<string>();
+    const dates = new Set<string>();
     positions.forEach((p) => {
-      const c = p.currency || BASE_CURRENCY;
-      if (c !== BASE_CURRENCY) set.add(c);
+      const code = normalizeCurrency(p.currency);
+      if (code === displayCurrency) return;
+      currencies.add(code);
+      const date = positionDate(p);
+      if (date) dates.add(date);
     });
     snapshots.forEach((s) => {
-      if (s.currency && s.currency !== BASE_CURRENCY) set.add(s.currency);
+      const code = normalizeCurrency(s.currency);
+      if (code === displayCurrency) return;
+      currencies.add(code);
+      if (s.snapshot_date) dates.add(s.snapshot_date);
     });
-    return Array.from(set).sort();
-  }, [positions, snapshots]);
+    return { currencies: Array.from(currencies).sort(), dates: Array.from(dates).sort() };
+  }, [positions, snapshots, displayCurrency]);
 
-  // --- Chargement du taux de change (identifiable et daté) --------------------
-  useEffect(() => {
-    if (foreignCurrencies.length === 0) {
-      setFx(null);
-      setFxError(false);
-      return;
-    }
-    let cancelled = false;
+  const fx = useFxRates(fxInputs.currencies, fxInputs.dates);
 
-    const load = async () => {
-      setFxLoading(true);
-      try {
-        const res = await fetch(
-          `${FX_ENDPOINT}?from=${BASE_CURRENCY}&to=${foreignCurrencies.join(",")}`
-        );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = (await res.json()) as { date?: string; rates?: Record<string, number> };
-        if (cancelled) return;
-        const rates: Record<string, number> = { [BASE_CURRENCY]: 1 };
-        foreignCurrencies.forEach((c) => {
-          const perEur = Number(json?.rates?.[c]);
-          // L'API renvoie « 1 EUR = x DEV » : on stocke l'inverse (EUR par devise).
-          rates[c] = Number.isFinite(perEur) && perEur > 0 ? 1 / perEur : NaN;
-        });
-        setFx({ rates, date: json?.date || todayIso(), source: FX_SOURCE });
-        setFxError(false);
-      } catch (error) {
-        if (cancelled) return;
-        console.error("Échec du chargement du taux de change:", error);
-        setFx(null);
-        setFxError(true);
-      } finally {
-        if (!cancelled) setFxLoading(false);
-      }
-    };
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [foreignCurrencies]);
-
-  const eurRate = (currency: string): number | null => {
-    if (currency === BASE_CURRENCY) return 1;
-    const rate = fx?.rates?.[currency];
-    return Number.isFinite(rate) && rate > 0 ? rate : null;
+  /** Nombre d'affichage d'une devise, mise en forme du dernier taux connu. */
+  const rateLine = (code: string) => {
+    const factor = fxFactor(fx, code, displayCurrency, null);
+    return factor == null
+      ? `${code} : indisponible`
+      : `1 ${code} = ${formatRate(factor)} ${displayCurrency}`;
   };
 
-  /** Conversion explicite : renvoie null si un taux manque (jamais d'addition brute). */
-  const convert = (value: number, from: string, to: string): number | null => {
-    if (from === to) return value;
-    const rateFrom = eurRate(from);
-    const rateTo = eurRate(to);
-    if (rateFrom == null || rateTo == null) return null;
-    return (value * rateFrom) / rateTo;
-  };
-
-  // --- Carte unique : valorisation consolidée selon le filtre -----------------
+  // --- Carte unique : valorisation consolidée selon le filtre ------------
+  // Valeur actuelle au taux du jour ; prix de revient converti au taux du jour
+  // d'enregistrement de chaque position : la performance obtenue intègre donc
+  // l'évolution du change, et jamais une addition directe USD + EUR.
   const summary = useMemo(() => {
     let value = 0;
     let cost = 0;
@@ -208,23 +181,25 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
 
     filteredPositions.forEach((p) => {
       count += 1;
-      const from = p.currency || BASE_CURRENCY;
-      if (from !== displayCurrency) converted = true;
+      const code = normalizeCurrency(p.currency);
+      if (code !== displayCurrency) converted = true;
 
-      const factor = convert(1, from, displayCurrency);
-      if (factor == null) {
-        missingFx += 1;
-        return;
-      }
+      const valueFactor = fxFactor(fx, code, displayCurrency, null);
+      const costFactor = fxFactor(fx, code, displayCurrency, positionDate(p));
 
-      cost += Number(p.quantity) * Number(p.avg_price) * factor;
+      if (costFactor == null) missingFx += 1;
+      else cost += Number(p.quantity) * Number(p.avg_price) * costFactor;
 
       const price = p.asset_details?.price;
       if (price == null) {
         missingPrice += 1;
         return;
       }
-      value += Number(p.quantity) * Number(price) * factor;
+      if (valueFactor == null) {
+        if (costFactor != null) missingFx += 1;
+        return;
+      }
+      value += Number(p.quantity) * Number(price) * valueFactor;
     });
 
     const gain = value - cost;
@@ -242,15 +217,26 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
     };
   }, [filteredPositions, displayCurrency, fx]);
 
-  // Devises réellement converties pour la sélection courante.
   const conversionCurrencies = useMemo(() => {
     const set = new Set<string>();
     filteredPositions.forEach((p) => {
-      const c = p.currency || BASE_CURRENCY;
-      if (c !== displayCurrency) set.add(c);
+      const code = normalizeCurrency(p.currency);
+      if (code !== displayCurrency) set.add(code);
     });
     return Array.from(set).sort();
   }, [filteredPositions, displayCurrency]);
+
+  // Dates de taux effectivement appliquées au prix de revient (vérifiable).
+  const costRateDates = useMemo(() => {
+    const set = new Set<string>();
+    filteredPositions.forEach((p) => {
+      const code = normalizeCurrency(p.currency);
+      if (code === displayCurrency) return;
+      const resolved = rateAt(fx, code, positionDate(p));
+      if (resolved) set.add(resolved.date);
+    });
+    return Array.from(set).sort();
+  }, [filteredPositions, displayCurrency, fx]);
 
   // Répartition PEA / CTO (vue « Tous » uniquement), consolidée en EUR.
   const accountSplit = useMemo(() => {
@@ -258,9 +244,15 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
     positions.forEach((p) => {
       const price = p.asset_details?.price;
       if (price == null) return;
-      const convertedValue = convert(Number(p.quantity) * Number(price), p.currency || BASE_CURRENCY, BASE_CURRENCY);
-      if (convertedValue == null) return;
-      totals[p.account_type] += convertedValue;
+      const converted = convertAmount(
+        fx,
+        Number(p.quantity) * Number(price),
+        normalizeCurrency(p.currency),
+        BASE_CURRENCY,
+        null
+      );
+      if (converted == null) return;
+      totals[p.account_type] += converted;
     });
     const sum = totals.PEA + totals.CTO;
     return {
@@ -271,28 +263,50 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
     };
   }, [positions, fx]);
 
-  // --- PARTIE 2 : historique (snapshots réels, ajustés des apports) ----------
-  const historyPoints = useMemo(() => {
-    const byDate = new Map<string, { value: number; cost: number }>();
+  // --- PARTIE 2 : historique (snapshots réels, taux datés) ----------------
+  // Chaque journée est convertie au taux de sa propre date : la courbe EUR
+  // reflète donc l'évolution réelle du change, pas seulement celle des cours.
+  // Les apports sont mesurés sur la variation du prix de revient en devise
+  // d'origine (un mouvement de change n'est jamais compté comme un apport).
+  const historyPoints = useMemo<ChartPoint[]>(() => {
+    const byDate = new Map<string, Map<string, { value: number; cost: number }>>();
+
     snapshots
       .filter((s) => accountFilter === ALL_ACCOUNTS || s.account_type === accountFilter)
       .forEach((s) => {
-        const value = convert(Number(s.market_value), s.currency, displayCurrency);
-        const cost = convert(Number(s.cost_basis), s.currency, displayCurrency);
-        if (value == null || cost == null) return;
-        const entry = byDate.get(s.snapshot_date) ?? { value: 0, cost: 0 };
-        entry.value += value;
-        entry.cost += cost;
-        byDate.set(s.snapshot_date, entry);
+        const day = byDate.get(s.snapshot_date) ?? new Map<string, { value: number; cost: number }>();
+        const code = normalizeCurrency(s.currency);
+        const entry = day.get(code) ?? { value: 0, cost: 0 };
+        entry.value += Number(s.market_value);
+        entry.cost += Number(s.cost_basis);
+        day.set(code, entry);
+        byDate.set(s.snapshot_date, day);
       });
-    return Array.from(byDate.entries())
-      .map(([date, entry]) => ({ date, ...entry }))
-      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const dates = Array.from(byDate.keys()).sort();
+    return dates.map((date, index) => {
+      const current = byDate.get(date)!;
+      const previous = index > 0 ? byDate.get(dates[index - 1])! : null;
+
+      let value = 0;
+      let cost = 0;
+      let flow = 0;
+
+      current.forEach((row, code) => {
+        const factor = fxFactor(fx, code, displayCurrency, date);
+        if (factor == null) return;
+        value += row.value * factor;
+        cost += row.cost * factor;
+        flow += (row.cost - (previous?.get(code)?.cost ?? 0)) * factor;
+      });
+
+      return { date, value, cost, flow, perf: 0 };
+    });
   }, [snapshots, accountFilter, displayCurrency, fx]);
 
   const firstSnapshotDate = historyPoints[0]?.date;
 
-  const chartSeries = useMemo(() => {
+  const chartSeries = useMemo<ChartPoint[]>(() => {
     const now = new Date();
     let start: Date | null = null;
     if (period === "1S") start = subDays(now, 7);
@@ -300,55 +314,58 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
     else if (period === "YTD") start = startOfYear(now);
     else if (period === "1A") start = subYears(now, 1);
 
-    const windowed = start ? historyPoints.filter((p) => parseISO(p.date) >= start!) : historyPoints;
+    const windowed = start
+      ? historyPoints.filter((p) => parseISO(p.date) >= start!)
+      : historyPoints;
 
-    // Performance ajustée des flux : on retire des variations la part liée aux
-    // apports/retraits (approchés par la variation du prix de revient), de sorte
-    // qu'un dépôt n'apparaisse jamais comme une performance.
+    // Performance ajustée des flux : on neutralise les apports/retraits pour
+    // qu'un versement n'apparaisse jamais comme une performance.
     let index = 0;
     return windowed.map((point, i) => {
       if (i > 0) {
         const previous = windowed[i - 1];
-        const flow = point.cost - previous.cost;
-        const dailyReturn = previous.value > 0 ? (point.value - flow - previous.value) / previous.value : 0;
+        const dailyReturn =
+          previous.value > 0 ? (point.value - point.flow - previous.value) / previous.value : 0;
         index = (1 + index) * (1 + dailyReturn) - 1;
       }
-      return { date: point.date, value: point.value, perf: index * 100 };
+      return { ...point, perf: index * 100 };
     });
   }, [historyPoints, period]);
 
-  // Gain (€) et performance (%) de la période, corrigés des apports/retraits.
   const periodStats = useMemo(() => {
     if (chartSeries.length < 2) return null;
-    const windowed = chartSeries;
-    const firstPoint = historyPoints.find((p) => p.date === windowed[0].date)!;
-    const lastPoint = historyPoints.find((p) => p.date === windowed[windowed.length - 1].date)!;
-    const flows = lastPoint.cost - firstPoint.cost;
-    const gain = lastPoint.value - firstPoint.value - flows;
+    const first = chartSeries[0];
+    const last = chartSeries[chartSeries.length - 1];
+    const contributions = chartSeries.slice(1).reduce((acc, point) => acc + point.flow, 0);
+    const gain = last.value - first.value - contributions;
     return {
       gain,
-      perfPercent: windowed[windowed.length - 1].perf,
-      valueStart: firstPoint.value,
-      valueEnd: lastPoint.value,
-      contributions: flows,
+      perfPercent: last.perf,
+      contributions,
     };
-  }, [chartSeries, historyPoints]);
+  }, [chartSeries]);
 
-  // --- PARTIE 3 : répartition par entreprise (valeur de marché) --------------
+  // --- PARTIE 3 : répartition par entreprise (valeur de marché) -----------
   const allocation = useMemo(() => {
     const map = new Map<string, { name: string; symbol?: string; value: number }>();
     filteredPositions.forEach((p) => {
       const price = p.asset_details?.price;
       if (price == null) return;
-      const convertedValue = convert(Number(p.quantity) * Number(price), p.currency || BASE_CURRENCY, displayCurrency);
-      if (convertedValue == null) return;
+      const converted = convertAmount(
+        fx,
+        Number(p.quantity) * Number(price),
+        normalizeCurrency(p.currency),
+        displayCurrency,
+        null
+      );
+      if (converted == null) return;
       const key = String(p.id_asset);
       const entry = map.get(key) ?? {
         name: p.asset_details?.name_asset || p.asset_details?.name || p.asset_details?.symbol || "Entreprise",
         symbol: p.asset_details?.symbol || undefined,
         value: 0,
       };
-      entry.value += convertedValue;
+      entry.value += converted;
       map.set(key, entry);
     });
     const rows = Array.from(map.entries())
@@ -364,7 +381,7 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
     };
   }, [filteredPositions, displayCurrency, fx]);
 
-  // --- Chargement des snapshots ----------------------------------------------
+  // --- Chargement des snapshots -------------------------------------------
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
@@ -392,20 +409,26 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
     };
   }, [user?.id]);
 
-  // --- Enregistrement de la photo du jour ------------------------------------
-  // Conditionné : toutes les positions doivent avoir un cours, sinon la valeur
-  // serait tronquée et fausserait l'historique. Une seule écriture par jour et
-  // par (devise, compte), évitant tout appel redondant. Les devises d'origine
-  // sont conservées telles quelles : la conversion n'intervient qu'à l'affichage.
+  // --- Enregistrement de la photo du jour ---------------------------------
+  // Les devises d'origine sont conservées telles quelles : la conversion
+  // n'intervient qu'à l'affichage.
   useEffect(() => {
     if (!user || positions.length === 0) return;
     if (!positions.every((p) => p.asset_details?.price != null)) return;
 
-    const grouped = new Map<string, { currency: string; account_type: AccountType; market_value: number; cost_basis: number }>();
+    const grouped = new Map<
+      string,
+      { currency: string; account_type: AccountType; market_value: number; cost_basis: number }
+    >();
     positions.forEach((p) => {
-      const c = p.currency || BASE_CURRENCY;
-      const key = `${c}|${p.account_type}`;
-      const entry = grouped.get(key) ?? { currency: c, account_type: p.account_type, market_value: 0, cost_basis: 0 };
+      const currency = normalizeCurrency(p.currency);
+      const key = `${currency}|${p.account_type}`;
+      const entry = grouped.get(key) ?? {
+        currency,
+        account_type: p.account_type,
+        market_value: 0,
+        cost_basis: 0,
+      };
       entry.cost_basis += Number(p.quantity) * Number(p.avg_price);
       entry.market_value += Number(p.quantity) * Number(p.asset_details!.price!);
       grouped.set(key, entry);
@@ -443,7 +466,7 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
       });
   }, [positions, user?.id]);
 
-  // --- Rendu ------------------------------------------------------------------
+  // --- Rendu ---------------------------------------------------------------
   if (positions.length === 0) {
     return (
       <Card className="glassmorphism border-none">
@@ -474,16 +497,9 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
   const hasValue = summary.isComplete && summary.value > 0;
   const isPositive = summary.gain >= 0;
 
-  const fxDetails = fxLoading
-    ? "Chargement du taux de change…"
-    : fxError || !fx
-      ? "Taux de change indisponible : la conversion en euros n'est pas appliquée."
-      : `Taux utilisé : ${conversionCurrencies
-          .map((c) => {
-            const rate = eurRate(c);
-            return rate == null ? `${c} : indisponible` : `1 ${c} = ${formatRate(rate)} ${BASE_CURRENCY}`;
-          })
-          .join(" · ")} — source ${fx.source}, taux du ${format(parseISO(fx.date), "d MMMM yyyy", { locale: fr })}.`;
+  const fxSource = fx.quote
+    ? `${fx.quote.source} · taux du ${formatFullDay(fx.quote.date)}`
+    : null;
 
   return (
     <section className="space-y-3">
@@ -535,7 +551,11 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
               </p>
             </div>
             {hasValue && (
-              <div className={`flex shrink-0 items-center gap-1 text-right ${isPositive ? "text-green-600" : "text-red-600"}`}>
+              <div
+                className={`flex shrink-0 items-center gap-1 text-right ${
+                  isPositive ? "text-green-600" : "text-red-600"
+                }`}
+              >
                 {isPositive ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
                 <div>
                   <p className="text-sm font-bold">{formatSigned(summary.gain, summary.currency)}</p>
@@ -557,15 +577,46 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
             )}
             {summary.missingFx > 0 && (
               <span className="text-amber-600">
-                Taux de change indisponible pour {summary.missingFx} position{summary.missingFx > 1 ? "s" : ""}
+                Taux de change indisponible pour {summary.missingFx} position
+                {summary.missingFx > 1 ? "s" : ""}
               </span>
             )}
           </div>
 
           {showFx && summary.converted && (
-            <p className="rounded-lg border border-white/30 bg-white/30 px-3 py-2 text-[11px] text-muted-foreground">
-              {fxDetails}
-            </p>
+            <div className="space-y-1.5 rounded-lg border border-white/30 bg-white/30 px-3 py-2 text-[11px] text-muted-foreground">
+              {fx.loading && !fx.quote ? (
+                <p>Chargement du taux de change…</p>
+              ) : fx.quote ? (
+                <>
+                  <p className="font-medium text-foreground">
+                    {conversionCurrencies.map((code) => rateLine(code)).join(" · ")}
+                  </p>
+                  <p>
+                    Source : {fxSource}
+                    {conversionCurrencies.every((code) => fxFactor(fx, code, displayCurrency, null) != null)
+                      ? ""
+                      : " — certaines devises restent indisponibles"}
+                  </p>
+                  <p>
+                    Valeur actuelle convertie au taux du {formatFullDay(fx.quote.date)} ; prix de revient converti
+                    au taux du jour d'enregistrement de chaque position
+                    {costRateDates.length > 0 ? ` (${costRateDates.map(formatFullDay).join(", ")})` : ""}.
+                  </p>
+                </>
+              ) : (
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-amber-600">{fx.error || "Taux de change indisponible."}</p>
+                  <button
+                    type="button"
+                    onClick={fx.reload}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/40 bg-white/60 px-2 py-0.5 font-medium text-primary hover:bg-white"
+                  >
+                    <RefreshCw className="h-3 w-3" /> Réessayer
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
           {accountFilter === ALL_ACCOUNTS && accountSplit.sum > 0 && (
@@ -597,21 +648,21 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
                 {displayCurrency} · {rangeLabel} · ajustée des apports/retraits
               </p>
             </div>
-            <div className="flex items-center gap-1">
-              <div className="flex rounded-full border border-white/20 bg-white/40 p-0.5">
-                {PERIODS.map((p) => (
-                  <button
-                    key={p.value}
-                    type="button"
-                    onClick={() => setPeriod(p.value)}
-                    className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                      period === p.value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
+            <div className="flex rounded-full border border-white/20 bg-white/40 p-0.5">
+              {PERIODS.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => setPeriod(p.value)}
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                    period === p.value
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -634,8 +685,16 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
               <AreaChart data={chartSeries} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
                 <defs>
                   <linearGradient id="dashboardFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={chartMode === "value" ? "#6366f1" : "#22c55e"} stopOpacity={0.35} />
-                    <stop offset="100%" stopColor={chartMode === "value" ? "#6366f1" : "#22c55e"} stopOpacity={0.02} />
+                    <stop
+                      offset="0%"
+                      stopColor={chartMode === "value" ? "#6366f1" : "#22c55e"}
+                      stopOpacity={0.35}
+                    />
+                    <stop
+                      offset="100%"
+                      stopColor={chartMode === "value" ? "#6366f1" : "#22c55e"}
+                      stopOpacity={0.02}
+                    />
                   </linearGradient>
                 </defs>
                 <CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -662,12 +721,10 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
                   cursor={{ stroke: "#94a3b8", strokeDasharray: "3 3" }}
                   content={({ active, payload }) => {
                     if (!active || !payload?.length) return null;
-                    const point = payload[0].payload as { date: string; value: number; perf: number };
+                    const point = payload[0].payload as ChartPoint;
                     return (
                       <div className="rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
-                        <div className="font-medium">
-                          {format(parseISO(point.date), "d MMMM yyyy", { locale: fr })}
-                        </div>
+                        <div className="font-medium">{formatFullDay(point.date)}</div>
                         <div className="text-foreground">{formatMoney(point.value, displayCurrency)}</div>
                         <div className={point.perf >= 0 ? "text-green-600" : "text-red-600"}>
                           Performance {formatSignedPercent(point.perf)}
@@ -695,7 +752,7 @@ export function PortfolioDashboard({ positions }: { positions: StockPosition[] }
                   {loadingSnapshots
                     ? "Chargement…"
                     : firstSnapshotDate
-                      ? `Premier point enregistré le ${format(parseISO(firstSnapshotDate), "d MMMM yyyy", { locale: fr })}. La courbe s'affichera dès qu'un second jour sera enregistré.`
+                      ? `Premier point enregistré le ${formatFullDay(firstSnapshotDate)}. La courbe s'affichera dès qu'un second jour sera enregistré.`
                       : "Aucun historique n'existe encore : la courbe se construira à partir d'aujourd'hui, à chaque actualisation des cours."}
                 </p>
                 <p>Aucune performance passée n'est inventée : seules les données réellement enregistrées sont utilisées.</p>
