@@ -96,6 +96,17 @@ export type Affiliate = {
   click_count?: number | null;
 };
 
+export type PortfolioSnapshot = {
+  id_snapshot: number;
+  id_user: string;
+  snapshot_date: string;
+  currency: string;
+  account_type: AccountType;
+  market_value: number;
+  cost_basis: number;
+  created_at?: string;
+};
+
 export type UserAssetPreference = {
   id_user: string;
   id_invest: number;

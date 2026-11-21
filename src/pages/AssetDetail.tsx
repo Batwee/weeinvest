@@ -58,6 +58,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { UserBadge } from "@/components/UserBadge";
+import { PortfolioDashboard } from "@/components/PortfolioDashboard";
 import { useAuth } from "@/hooks/useAuth";
 import {
   isPushSupported,
@@ -1559,6 +1560,10 @@ const AssetDetailPage = () => {
             )}
           </div>
         </header>
+
+        {isBourse && (
+          <PortfolioDashboard positions={positions} />
+        )}
 
         {isBourse && (
           <div className="space-y-3">
