@@ -44,8 +44,7 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
-  Wallet,
-  ChevronDown
+  Wallet
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -1709,17 +1708,19 @@ const AssetDetailPage = () => {
                     <span className="min-w-0 truncate font-semibold">
                       {asset?.name_asset || asset?.name || "Entreprise"}
                     </span>
-                    <span className="flex shrink-0 items-center gap-2">
+                    <span className="flex shrink-0 items-center gap-1.5">
                       {gain != null ? (
                         <span className={`text-sm font-bold ${isPositive ? "text-green-600" : "text-red-600"}`}>
                           {signedAmount(gain, currency)}
+                          {gainPercent != null && (
+                            <span className="text-xs font-semibold">
+                              {" "}({gainPercent >= 0 ? "+" : ""}{gainPercent.toFixed(2)} %)
+                            </span>
+                          )}
                         </span>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}
-                      <ChevronDown
-                        className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`}
-                      />
                     </span>
                   </button>
 
